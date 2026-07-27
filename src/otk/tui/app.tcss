@@ -1,0 +1,153 @@
+/* Inbox layout: a counts strip, then list | detail, then key hints. */
+
+Screen {
+    layers: base;
+}
+
+#counts {
+    height: 1;
+    padding: 0 1;
+    background: $panel;
+}
+
+#body {
+    height: 1fr;
+}
+
+#list-pane {
+    width: 55%;
+    min-width: 40;
+    border-right: solid $primary-darken-2;
+}
+
+#tickets {
+    height: 1fr;
+    scrollbar-size-vertical: 1;
+}
+
+#list-empty {
+    display: none;
+    height: 1fr;
+    padding: 2 3;
+    color: $text-muted;
+}
+
+#detail {
+    width: 1fr;
+    padding: 0 2;
+    scrollbar-size-vertical: 1;
+}
+
+#detail:focus {
+    border-left: thick $accent;
+}
+
+.placeholder {
+    padding: 2 1;
+    color: $text-muted;
+}
+
+.detail-title {
+    padding: 1 0 0 0;
+}
+
+.detail-headline {
+    padding: 0 0 1 0;
+}
+
+.detail-meta {
+    padding: 0 0 1 0;
+}
+
+.section {
+    margin: 1 0 0 0;
+    padding: 0 1;
+    background: $panel;
+    color: $text;
+    text-style: bold;
+}
+
+.section-error {
+    background: $error 30%;
+}
+
+.body {
+    padding: 1 0;
+}
+
+.detail-error {
+    padding: 1 0;
+    border-left: thick $error;
+    padding-left: 1;
+}
+
+.traceback {
+    padding: 0 1;
+    color: $text-muted;
+}
+
+.preview {
+    padding: 1 0;
+}
+
+.comment {
+    padding: 1 1;
+    margin: 1 0 0 0;
+    border-left: thick $primary-darken-2;
+}
+
+.comment.internal {
+    border-left: thick $warning;
+    background: $warning 10%;
+}
+
+/* ------------------------------------------------------------------ modals */
+
+ChoiceScreen,
+PromptScreen,
+ComposeScreen {
+    align: center middle;
+}
+
+.modal {
+    width: 60;
+    height: auto;
+    max-height: 80%;
+    padding: 1 2;
+    background: $surface;
+    border: thick $accent;
+}
+
+.modal-prompt {
+    height: auto;
+}
+
+.modal-compose {
+    width: 78;
+    height: 22;
+}
+
+.modal-title {
+    padding: 0 0 1 0;
+    text-style: bold;
+}
+
+.modal-hint {
+    padding: 0 0 1 0;
+    color: $text-muted;
+}
+
+.modal-buttons {
+    height: auto;
+    padding: 1 0 0 0;
+    align-horizontal: right;
+}
+
+.modal-buttons Button {
+    margin-left: 2;
+}
+
+#choices {
+    height: auto;
+    max-height: 14;
+}

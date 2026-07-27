@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sign in · Odoo Tickets</title>
+<link rel="stylesheet" href="/static/app.css">
+</head>
+<body class="centred">
+<main class="card login-card">
+  <h1 class="login-title">otk <span class="login-sub">operator sign in</span></h1>
+
+  {% if error %}
+    <p class="alert alert-error" role="alert">{{ error }}</p>
+  {% endif %}
+
+  {% if no_operators %}
+    <div class="alert alert-info">
+      <p>No operator accounts exist yet. Create one on the server:</p>
+      <pre class="code">otk operator add &lt;username&gt;</pre>
+    </div>
+  {% endif %}
+
+  <form method="post" action="/login" class="stack">
+    <input type="hidden" name="next" value="{{ next }}">
+    <label class="field">
+      <span class="field-label">Username</span>
+      <input type="text" name="username" autocomplete="username" autofocus required>
+    </label>
+    <label class="field">
+      <span class="field-label">Password</span>
+      <input type="password" name="password" autocomplete="current-password" required>
+    </label>
+    <button class="button button-primary" type="submit">Sign in</button>
+  </form>
+</main>
+</body>
+</html>

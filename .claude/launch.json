@@ -1,0 +1,12 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "web",
+      "runtimeExecutable": ".venv/bin/python",
+      "runtimeArgs": ["-m", "uvicorn", "otk.web.app:create_web_app", "--factory", "--host", "127.0.0.1", "--port", "8788"],
+      "port": 8788,
+      "env": { "OTK_DATA_DIR": "/tmp/otk-demo" }
+    }
+  ]
+}

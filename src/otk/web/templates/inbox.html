@@ -1,0 +1,103 @@
+{% extends "base.html" %}
+{% block title %}Inbox · Odoo Tickets{% endblock %}
+
+{% block content %}
+{# Every tab keeps the current search and client filter, so switching views
+   never silently widens what you are looking at. #}
+{% set keep %}{% if q %}&amp;q={{ q|urlencode }}{% endif %}{% if client %}&amp;client={{ client|urlencode }}{% endif %}{% endset %}
+
+<div class="page-head">
+  <h1 class="page-title">Inbox</h1>
+  <p class="counts">
+    {% for s in statuses %}{% if counts.get(s) %}
+      <span class="count-chip status-{{ s }}">{{ s.replace('_', ' ') }} <b>{{ counts[s] }}</b></span>
+    {% endif %}{% endfor %}
+    {% if not counts %}<span class="muted">no tickets yet</span>{% endif %}
+  </p>
+</div>
+
+<div class="filters">
+  <form class="search" method="get" action="/">
+    {% if client %}<input type="hidden" name="client" value="{{ client }}">{% endif %}
+    <input type="hidden" name="view" value="{{ view }}">
+    <input type="search" name="q" value="{{ q }}" placeholder="Search ref, title, description, reporter">
+    <button class="button" type="submit">Search</button>
+    {% if q %}<a class="button button-quiet" href="/?view={{ view|urlencode }}{% if client %}&amp;client={{ client|urlencode }}{% endif %}">Clear</a>{% endif %}
+  </form>
+
+  <nav class="tabs">
+    {% for name, label in [('open', 'Open'), ('unread', 'Unread'), ('all', 'All'), ('closed', 'Closed')] %}
+      <a class="tab{% if view == name %} is-active{% endif %}" href="/?view={{ name }}{{ keep }}">{{ label }}</a>
+    {% endfor %}
+  </nav>
+</div>
+
+{% if not tickets %}
+  <div class="empty-state">
+    <p class="empty-title">Nothing here.</p>
+    {% if q %}
+      <p>No ticket matches <b>{{ q }}</b>{% if view != 'all' %} in the <b>{{ view }}</b> view{% endif %}.</p>
+      <p><a href="/?view=all{% if client %}&amp;client={{ client|urlencode }}{% endif %}">Search every ticket instead</a></p>
+    {% elif view == 'unread' %}
+      <p>No unread tickets. Everything has been looked at.</p>
+    {% elif view == 'closed' %}
+      <p>No closed or resolved tickets yet.</p>
+    {% elif client %}
+      <p>This client has no open tickets. <a href="/?view=all&amp;client={{ client|urlencode }}">Show closed ones too</a>.</p>
+    {% else %}
+      <p>No open tickets. When an Odoo user reports a problem it lands here.</p>
+    {% endif %}
+  </div>
+{% else %}
+  <ul class="ticket-list">
+    {% for t in tickets %}
+      {# Prefer the screenshot the reporter's browser captured; fall back to
+         whatever image did arrive, since a thumbnail is what makes this list
+         scannable at all. #}
+      {% set ns = namespace(shot=none, image=none) %}
+      {% for a in t.attachments %}
+        {% if a.content_type.startswith('image/') %}
+          {% if ns.image is none %}{% set ns.image = a %}{% endif %}
+          {% if a.role == 'screenshot' and ns.shot is none %}{% set ns.shot = a %}{% endif %}
+        {% endif %}
+      {% endfor %}
+      {% set thumb = ns.shot or ns.image %}
+
+      <li class="ticket-row prio-{{ t.priority }}{% if t.status in ('closed', 'resolved') %} is-done{% endif %}{% if t.unread %} is-unread{% endif %}">
+        <a class="ticket-thumb" href="/tickets/{{ t.id }}">
+          {% if thumb %}
+            <img src="/attachments/{{ thumb.id }}/thumb" alt="Screenshot for {{ t.ref }}" loading="lazy" width="160" height="100">
+          {% elif t.purged_at %}
+            <span class="thumb-placeholder" title="Files purged">purged</span>
+          {% else %}
+            <span class="thumb-placeholder">no image</span>
+          {% endif %}
+        </a>
+
+        <div class="ticket-body">
+          <p class="ticket-line1">
+            {% if t.unread %}<span class="unread-dot" title="Unread">●</span>{% endif %}
+            <a class="ticket-title" href="/tickets/{{ t.id }}">{{ t.title }}</a>
+          </p>
+          <p class="ticket-meta">
+            <span class="ref">{{ t.ref }}</span>
+            <span class="pill status-{{ t.status }}">{{ t.status.replace('_', ' ') }}</span>
+            <span class="pill prio-pill">{{ t.priority }}</span>
+            <span class="sep">·</span>
+            <span class="client">{{ t.client_name }}</span>
+            <span class="sep">·</span>
+            <span class="reporter">{{ t.reporter_name }}</span>
+          </p>
+          <p class="ticket-meta muted">
+            <span title="{{ t.created_at|localtime }}">{{ t.created_at|ago }}</span>
+            {% if t.comment_count %}<span class="sep">·</span><span>{{ t.comment_count }} comment{{ '' if t.comment_count == 1 else 's' }}</span>{% endif %}
+            {% if t.assignee %}<span class="sep">·</span><span>assigned to {{ t.assignee }}</span>{% endif %}
+            {% if t.attachments %}<span class="sep">·</span><span>{{ t.attachments|length }} file{{ '' if t.attachments|length == 1 else 's' }}</span>{% endif %}
+          </p>
+        </div>
+      </li>
+    {% endfor %}
+  </ul>
+  <p class="muted list-footer">{{ tickets|length }} ticket{{ '' if tickets|length == 1 else 's' }} shown{% if tickets|length >= 200 %} (capped at 200 — narrow the search){% endif %}.</p>
+{% endif %}
+{% endblock %}

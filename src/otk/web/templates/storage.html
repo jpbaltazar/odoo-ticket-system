@@ -1,0 +1,138 @@
+{% extends "base.html" %}
+{% block title %}Storage · Odoo Tickets{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <h1 class="page-title">Storage</h1>
+</div>
+
+{% if request.query_params.get('purged') %}
+  <p class="alert alert-ok">Purge finished. The numbers below have been recalculated.</p>
+{% endif %}
+
+<section class="panel usage">
+  <h2 class="panel-title">Now on disk</h2>
+  <div class="stat-row">
+    <div class="stat"><span class="stat-value">{{ usage.disk_bytes|humanbytes }}</span><span class="stat-label">blobs on disk</span></div>
+    <div class="stat"><span class="stat-value">{{ usage.attachment_rows }}</span><span class="stat-label">attachment rows</span></div>
+    <div class="stat"><span class="stat-value">{{ usage.logical_bytes|humanbytes }}</span><span class="stat-label">logical size (before dedup)</span></div>
+  </div>
+  <p class="muted">
+    {% if retention_days %}
+      Automatic retention is on: <code>otk purge --auto</code> strips files from closed
+      tickets older than <b>{{ retention_days }} days</b>.
+    {% else %}
+      Automatic retention is off (<code>retention_days = 0</code>). Nothing is ever removed
+      unless you do it here or with <code>otk purge</code>.
+    {% endif %}
+  </p>
+</section>
+
+<section class="panel">
+  <h2 class="panel-title">What would a purge remove?</h2>
+  <form class="filters" method="get" action="/storage">
+    <label class="field">
+      <span class="field-label">Not touched for at least</span>
+      <input type="number" name="days" value="{{ days }}" min="1" max="3650"> days
+    </label>
+    <label class="field">
+      <span class="field-label">Tickets</span>
+      <select name="scope">
+        <option value="closed"{% if scope == 'closed' %} selected{% endif %}>closed or resolved only</option>
+        <option value="all"{% if scope == 'all' %} selected{% endif %}>any status (including open)</option>
+      </select>
+    </label>
+    <button class="button" type="submit">Preview</button>
+  </form>
+  <p class="muted">This is a dry run. Nothing is deleted until you tick tickets below and confirm.</p>
+</section>
+
+<form id="purge-form" method="post" action="/storage/purge">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+
+  <section class="panel danger">
+    <h2 class="panel-title">Permanent deletion</h2>
+    <p class="danger-lede">
+      Purging <b>deletes the attachment files for good</b> — screenshots, PDFs, logs.
+      There is no undo and no backup here.
+      The tickets themselves stay: title, description, Odoo context and every comment
+      remain searchable, and the ticket records how many files were removed and when.
+    </p>
+    <p class="free-line">
+      Purging every ticket listed below would free
+      <b>{{ total_bytes|humanbytes }}</b>
+      across <b>{{ total_files }}</b> file{{ '' if total_files == 1 else 's' }}
+      in <b>{{ candidates|length }}</b> ticket{{ '' if candidates|length == 1 else 's' }}.
+    </p>
+    {% if candidates %}
+      <p class="free-line selected-line">
+        Ticked right now: <b id="purge-total">{{ 0|humanbytes }}</b>
+        in <b id="purge-files">0</b> files.
+      </p>
+    {% endif %}
+
+    {% if not candidates %}
+      <p class="muted">No ticket matches those rules, so there is nothing to purge.</p>
+    {% else %}
+      <div class="table-scroll">
+        <table class="table">
+          <thead>
+            <tr>
+              <th class="col-check"><input type="checkbox" id="purge-all" title="Select every row"></th>
+              <th>Ticket</th>
+              <th>Client</th>
+              <th>Status</th>
+              <th>Last touched</th>
+              <th class="num">Files</th>
+              <th class="num">Size</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for c in candidates %}
+              <tr>
+                <td class="col-check">
+                  <input type="checkbox" name="ticket_id" value="{{ c.id }}"
+                         data-bytes="{{ c.bytes }}" data-files="{{ c.file_count }}"
+                         aria-label="Purge files of {{ c.ref }}">
+                </td>
+                <td>
+                  <a href="/tickets/{{ c.id }}"><span class="ref">{{ c.ref }}</span></a>
+                  <span class="cell-title">{{ c.title }}</span>
+                </td>
+                <td>{{ c.client_slug }}</td>
+                <td><span class="pill status-{{ c.status }}">{{ c.status.replace('_', ' ') }}</span></td>
+                <td class="nowrap">{{ c.updated_at|localtime }} <span class="muted">({{ c.updated_at|ago }})</span></td>
+                <td class="num">{{ c.file_count }}</td>
+                <td class="num">{{ c.bytes|humanbytes }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+
+      <button class="button button-danger" type="submit">
+        Delete the files of the ticked tickets
+      </button>
+      <span class="muted">Nothing happens to tickets you leave unticked.</span>
+    {% endif %}
+  </section>
+</form>
+
+<section class="panel">
+  <h2 class="panel-title">Orphan blobs</h2>
+  <p class="muted">
+    Files on disk that no ticket references any more — normally the residue of an
+    upload whose ticket was rolled back. Removing them cannot affect a ticket.
+  </p>
+  <p class="free-line">
+    <b>{{ orphans.blobs }}</b> orphan blob{{ '' if orphans.blobs == 1 else 's' }},
+    <b>{{ orphans.bytes|humanbytes }}</b>.
+  </p>
+  {% if orphans.blobs %}
+    <form method="post" action="/storage/gc">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <button class="button" type="submit">Delete orphan blobs</button>
+    </form>
+  {% endif %}
+</section>
+{% endblock %}

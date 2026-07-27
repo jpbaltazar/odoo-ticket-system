@@ -1,0 +1,43 @@
+[project]
+name = "odoo-tickets"
+version = "0.1.0"
+description = "Ticket intake API + TUI for an Odoo implementation service"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+    "pydantic>=2.7",
+    "python-multipart>=0.0.9",
+    "typer>=0.12",
+    "textual>=0.80",
+    "pillow>=10.3",
+    "pyyaml>=6.0",
+    "jinja2>=3.1",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-timeout>=2.3",
+    "httpx>=0.27",
+]
+
+[project.scripts]
+otk = "otk.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/otk"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+# The sync-feed tests drain a cursor in a `while has_more` loop. If the server
+# ever stops advancing that cursor the loop is infinite, and an unbounded test
+# run is far more expensive to notice than a failing one. The whole suite runs
+# in ~5s, so any test taking a minute is wedged by definition.
+timeout = 60

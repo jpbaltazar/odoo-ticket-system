@@ -1,0 +1,285 @@
+{% extends "base.html" %}
+{% block title %}{{ ticket.ref }} · {{ ticket.title }}{% endblock %}
+
+{% block content %}
+{% set ctx = ticket.context or {} %}
+{# Rendered explicitly below; everything else in the context is shown by the
+   generic loop at the end so a field a client's module invents is never
+   silently dropped. #}
+{% set handled = ['url', 'page_title', 'odoo_version', 'database', 'company_name',
+                  'model', 'res_id', 'view_type', 'action_xml_id', 'user_lang',
+                  'user_tz', 'error', 'browser'] %}
+
+<article class="ticket">
+
+  <!-- 1. header -->
+  <header class="ticket-head">
+    <p class="crumbs">
+      <a href="/">Inbox</a>
+      <span class="sep">/</span>
+      <a href="/?client={{ ticket.client_id }}">{{ ticket.client_name }}</a>
+      <span class="sep">/</span>
+      <span class="ref">{{ ticket.ref }}</span>
+    </p>
+    <h1 class="ticket-h1">{{ ticket.title }}</h1>
+    <p class="ticket-badges">
+      <span class="pill status-{{ ticket.status }}">{{ ticket.status.replace('_', ' ') }}</span>
+      <span class="pill prio-pill prio-{{ ticket.priority }}">{{ ticket.priority }}</span>
+      <span class="pill">{{ ticket.category.replace('_', ' ') }}</span>
+      <span class="pill">{{ ticket.source.replace('_', ' ') }}</span>
+      {% if ticket.unread %}<span class="pill pill-unread">unread</span>{% endif %}
+      {% for tag in ticket.tags %}<span class="pill pill-tag">{{ tag }}</span>{% endfor %}
+    </p>
+    <dl class="head-facts">
+      <div><dt>Reporter</dt><dd>
+        {{ ticket.reporter_name }}
+        {% if ticket.reporter.email %}<span class="muted">&lt;{{ ticket.reporter.email }}&gt;</span>{% endif %}
+        {% if ticket.reporter.login %}<span class="muted">login {{ ticket.reporter.login }}</span>{% endif %}
+        {% if ticket.reporter.odoo_uid is not none %}<span class="muted">uid {{ ticket.reporter.odoo_uid }}</span>{% endif %}
+      </dd></div>
+      <div><dt>Client</dt><dd>{{ ticket.client_name }} <span class="muted">{{ ticket.client_slug }}</span></dd></div>
+      <div><dt>Created</dt><dd>{{ ticket.created_at|localtime }} <span class="muted">({{ ticket.created_at|ago }})</span></dd></div>
+      <div><dt>Updated</dt><dd>{{ ticket.updated_at|localtime }} <span class="muted">({{ ticket.updated_at|ago }})</span></dd></div>
+      {% if ticket.assignee %}<div><dt>Assignee</dt><dd>{{ ticket.assignee }}</dd></div>{% endif %}
+      {% if ticket.external_ref %}<div><dt>External ref</dt><dd>{{ ticket.external_ref }}</dd></div>{% endif %}
+    </dl>
+  </header>
+
+  <!-- 3. purge notice -->
+  {% if ticket.purged_at %}
+    <p class="alert alert-warn">
+      <b>{{ ticket.purged_files }} file{{ '' if ticket.purged_files == 1 else 's' }}
+      {{ 'was' if ticket.purged_files == 1 else 'were' }} deleted</b>
+      by a retention purge on {{ ticket.purged_at|localtime }}. The ticket text, context and
+      conversation below are intact; the screenshots are gone for good.
+    </p>
+  {% endif %}
+
+  <!-- 2. attachments: the screenshot is the point of this page -->
+  {% set ns = namespace(images=[], files=[]) %}
+  {% for a in ticket.attachments %}
+    {% if a.content_type.startswith('image/') %}
+      {% set ns.images = ns.images + [a] %}
+    {% else %}
+      {% set ns.files = ns.files + [a] %}
+    {% endif %}
+  {% endfor %}
+
+  {% if ns.images %}
+    <section class="shots">
+      {% for a in ns.images %}
+        <figure class="shot">
+          <a href="/attachments/{{ a.id }}" title="Open full size">
+            <img src="/attachments/{{ a.id }}" alt="{{ a.filename }}"
+                 {% if a.width %}width="{{ a.width }}"{% endif %}
+                 {% if a.height %}height="{{ a.height }}"{% endif %}>
+          </a>
+          <figcaption>
+            <span class="pill pill-quiet">{{ a.role }}</span>
+            {{ a.filename }}
+            <span class="muted">{{ a.size_bytes|humanbytes }}{% if a.width and a.height %} · {{ a.width }}×{{ a.height }}{% endif %}</span>
+            <a href="/attachments/{{ a.id }}?download=1">download</a>
+          </figcaption>
+        </figure>
+      {% endfor %}
+    </section>
+  {% endif %}
+
+  {% if ns.files %}
+    <section class="panel">
+      <h2 class="panel-title">Files</h2>
+      <ul class="file-list">
+        {% for a in ns.files %}
+          <li>
+            <span class="file-name">{{ a.filename }}</span>
+            <span class="muted">{{ a.content_type }} · {{ a.size_bytes|humanbytes }}</span>
+            <a href="/attachments/{{ a.id }}?download=1">download</a>
+          </li>
+        {% endfor %}
+      </ul>
+    </section>
+  {% endif %}
+
+  <!-- 4. description -->
+  <section class="panel">
+    <h2 class="panel-title">Description</h2>
+    {% if ticket.description %}
+      <div class="prose">{{ ticket.description }}</div>
+    {% else %}
+      <p class="muted">No description was sent with this ticket.</p>
+    {% endif %}
+  </section>
+
+  <!-- 5. odoo context -->
+  <section class="panel">
+    <h2 class="panel-title">Odoo context</h2>
+    {% if ctx %}
+      <dl class="ctx">
+        {% if ctx.get('url') %}
+          <div><dt>URL</dt><dd>
+            {# Only http(s) becomes a link: the URL comes from someone else's
+               user, and a javascript: href would run in this origin. #}
+            {% if ctx['url'].startswith('https://') or ctx['url'].startswith('http://') %}
+              <a href="{{ ctx['url'] }}" rel="noreferrer noopener" target="_blank">{{ ctx['url'] }}</a>
+            {% else %}
+              <code>{{ ctx['url'] }}</code>
+            {% endif %}
+          </dd></div>
+        {% endif %}
+        {% for label, key in [('Page', 'page_title'), ('Odoo version', 'odoo_version'),
+                              ('Database', 'database'), ('Company', 'company_name'),
+                              ('Model', 'model'), ('Record id', 'res_id'),
+                              ('View', 'view_type'), ('Action', 'action_xml_id'),
+                              ('Language', 'user_lang'), ('Timezone', 'user_tz')] %}
+          {% if ctx.get(key) is not none and ctx.get(key) != '' %}
+            <div><dt>{{ label }}</dt><dd>{{ ctx[key] }}</dd></div>
+          {% endif %}
+        {% endfor %}
+        {% for key, value in ctx.items() %}
+          {% if key not in handled and value is not none and value != '' %}
+            <div><dt>{{ key.replace('_', ' ') }}</dt><dd>
+              {% if value is string or value is number or value is boolean %}{{ value }}
+              {% else %}<code>{{ value|tojson }}</code>{% endif %}
+            </dd></div>
+          {% endif %}
+        {% endfor %}
+      </dl>
+    {% else %}
+      <p class="muted">The client's module sent no page context.</p>
+    {% endif %}
+
+    {% set err = ctx.get('error') %}
+    {% if err is mapping %}
+      <div class="panel-error">
+        <h3 class="error-name">{{ err.get('name') or 'Error' }}</h3>
+        {% if err.get('message') %}<p class="error-text">{{ err['message'] }}</p>{% endif %}
+        <dl class="ctx">
+          {% for label, key in [('RPC route', 'rpc_route'), ('RPC model', 'rpc_model'),
+                                ('RPC method', 'rpc_method'), ('HTTP status', 'http_status')] %}
+            {% if err.get(key) is not none and err.get(key) != '' %}
+              <div><dt>{{ label }}</dt><dd><code>{{ err[key] }}</code></dd></div>
+            {% endif %}
+          {% endfor %}
+        </dl>
+        {% for label, key in [('Traceback', 'traceback'), ('Server traceback', 'server_traceback')] %}
+          {% if err.get(key) %}
+            <details class="trace">
+              <summary>{{ label }}</summary>
+              <pre class="pre">{{ err[key] }}</pre>
+            </details>
+          {% endif %}
+        {% endfor %}
+      </div>
+    {% endif %}
+
+    {% set browser = ctx.get('browser') %}
+    {% if browser is mapping %}
+      <dl class="ctx ctx-browser">
+        {% if browser.get('user_agent') %}
+          <div><dt>User agent</dt><dd><code>{{ browser['user_agent'] }}</code></dd></div>
+        {% endif %}
+        {% if browser.get('viewport_width') or browser.get('viewport_height') %}
+          <div><dt>Viewport</dt><dd>{{ browser.get('viewport_width') or '?' }} × {{ browser.get('viewport_height') or '?' }}</dd></div>
+        {% endif %}
+      </dl>
+    {% endif %}
+  </section>
+
+  <!-- 6. controls -->
+  <section class="panel">
+    <h2 class="panel-title">Controls</h2>
+    <form class="controls" method="post" action="/tickets/{{ ticket.id }}/update">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <label class="field">
+        <span class="field-label">Status</span>
+        <select name="status">
+          {% for s in statuses %}
+            <option value="{{ s }}"{% if s == ticket.status %} selected{% endif %}>{{ s.replace('_', ' ') }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label class="field">
+        <span class="field-label">Priority</span>
+        <select name="priority">
+          {% for p in priorities %}
+            <option value="{{ p }}"{% if p == ticket.priority %} selected{% endif %}>{{ p }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label class="field">
+        <span class="field-label">Assignee</span>
+        <input type="text" name="assignee" value="{{ ticket.assignee or '' }}" placeholder="unassigned">
+      </label>
+      <button class="button button-primary" type="submit">Save</button>
+    </form>
+
+    <form class="inline-form" method="post" action="/tickets/{{ ticket.id }}/unread">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <button class="button button-quiet" type="submit">Mark unread and return to the inbox</button>
+    </form>
+  </section>
+
+  <!-- 7. conversation -->
+  <section class="panel">
+    <h2 class="panel-title">
+      Conversation
+      <span class="muted">{{ ticket.comment_count }} comment{{ '' if ticket.comment_count == 1 else 's' }}</span>
+    </h2>
+
+    {% if ticket.comments_truncated %}
+      <p class="muted">Older comments are not shown.</p>
+    {% endif %}
+
+    {% if not ticket.comments %}
+      <p class="muted">No replies yet.</p>
+    {% endif %}
+
+    <ol class="thread">
+      {% for c in ticket.comments %}
+        <li class="comment author-{{ c.author_type }}{% if c.visibility == 'internal' %} is-internal{% endif %}">
+          <p class="comment-head">
+            <b class="comment-author">{{ c.author_name }}</b>
+            <span class="pill pill-quiet">{{ c.author_type }}</span>
+            {% if c.visibility == 'internal' %}
+              <span class="pill pill-internal">internal note — the client cannot see this</span>
+            {% endif %}
+            <span class="muted" title="{{ c.created_at|localtime }}">{{ c.created_at|ago }}</span>
+          </p>
+          <div class="prose">{{ c.body }}</div>
+          {% if c.attachments %}
+            <ul class="comment-files">
+              {% for a in c.attachments %}
+                <li>
+                  {% if a.content_type.startswith('image/') %}
+                    <a href="/attachments/{{ a.id }}">
+                      <img class="comment-thumb" src="/attachments/{{ a.id }}/thumb" alt="{{ a.filename }}" loading="lazy">
+                    </a>
+                  {% endif %}
+                  <span class="file-name">{{ a.filename }}</span>
+                  <span class="muted">{{ a.size_bytes|humanbytes }}</span>
+                  <a href="/attachments/{{ a.id }}?download=1">download</a>
+                </li>
+              {% endfor %}
+            </ul>
+          {% endif %}
+        </li>
+      {% endfor %}
+    </ol>
+
+    <!-- 8. reply -->
+    <form class="reply" method="post" action="/tickets/{{ ticket.id }}/reply">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <label class="field">
+        <span class="field-label">Reply</span>
+        <textarea name="body" rows="5" placeholder="Written as {{ operator.display_name if operator else 'you' }}"></textarea>
+      </label>
+      <label class="checkline">
+        <input type="checkbox" name="internal" value="1">
+        <span><b>Internal note</b> — kept between operators. Leave unticked and
+        <b>{{ ticket.reporter_name }}</b> will see this reply.</span>
+      </label>
+      <button class="button button-primary" type="submit">Post reply</button>
+    </form>
+  </section>
+</article>
+{% endblock %}

@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}Odoo Tickets{% endblock %}</title>
+<link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+<a class="skip-link" href="#main">Skip to content</a>
+
+<header class="topbar">
+  <a class="brand" href="/">otk<span class="brand-sub">odoo tickets</span></a>
+  <nav class="topbar-nav">
+    <a href="/">Inbox{% if unread_count %} <span class="badge">{{ unread_count }}</span>{% endif %}</a>
+    <a href="/storage">Storage</a>
+  </nav>
+  <div class="whoami">
+    {% if operator %}
+      <span class="operator-name">{{ operator.display_name }}</span>
+      <form class="inline-form" method="post" action="/logout">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <button class="link-button" type="submit">Sign out</button>
+      </form>
+    {% endif %}
+  </div>
+</header>
+
+<div class="shell">
+  <aside class="sidebar">
+    <nav>
+      <ul class="nav-list">
+        <li><a class="nav-link{% if request.url.path == '/' %} is-current{% endif %}" href="/">
+          Inbox
+          {% if unread_count %}<span class="badge">{{ unread_count }}</span>{% endif %}
+        </a></li>
+        <li><a class="nav-link{% if request.url.path == '/storage' %} is-current{% endif %}" href="/storage">Storage</a></li>
+      </ul>
+
+      <p class="nav-heading">Clients</p>
+      <ul class="nav-list">
+        <li><a class="nav-link{% if request.url.path == '/' and not client %} is-current{% endif %}" href="/">All clients</a></li>
+        {% for c in nav_clients %}
+          <li><a class="nav-link{% if client is defined and client == c.id %} is-current{% endif %}"
+                 href="/?client={{ c.id }}" title="{{ c.slug }}">{{ c.name }}</a></li>
+        {% else %}
+          <li class="nav-empty">No clients yet</li>
+        {% endfor %}
+      </ul>
+    </nav>
+  </aside>
+
+  <main id="main" class="main">
+    {% block content %}{% endblock %}
+  </main>
+</div>
+
+<script src="/static/app.js" defer></script>
+</body>
+</html>
