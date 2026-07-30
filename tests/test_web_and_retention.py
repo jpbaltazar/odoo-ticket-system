@@ -546,3 +546,43 @@ def test_username_is_case_insensitive(settings, store):
             "/login", data={"username": "JOSE", "password": PASSWORD}, follow_redirects=False
         )
     assert response.status_code == 303
+
+
+# ------------------------------------------------------------ config file
+
+
+def test_cli_and_service_read_the_same_env_file(tmp_path, monkeypatch):
+    """The bug this prevents: systemd reads /etc/odoo-tickets/env but a bare
+    shell did not, so the CLI wrote to a second database under $HOME."""
+    from otk.config import get_settings
+
+    config = tmp_path / "env"
+    config.write_text(
+        "# comment\n"
+        f"OTK_DATA_DIR={tmp_path / 'data'}\n"
+        'export OTK_TZ="Europe/Lisbon"\n'
+        "OTK_RETENTION_DAYS=45\n"
+    )
+    for key in ("OTK_DATA_DIR", "OTK_TZ", "OTK_RETENTION_DAYS"):
+        monkeypatch.delenv(key, raising=False)
+    monkeypatch.setenv("OTK_CONFIG", str(config))
+    get_settings.cache_clear()
+
+    settings = get_settings()
+    assert settings.data_dir == tmp_path / "data"
+    assert settings.display_tz == "Europe/Lisbon"
+    assert settings.retention_days == 45
+    get_settings.cache_clear()
+
+
+def test_real_environment_beats_the_config_file(tmp_path, monkeypatch):
+    from otk.config import get_settings
+
+    config = tmp_path / "env"
+    config.write_text(f"OTK_DATA_DIR={tmp_path / 'from-file'}\n")
+    monkeypatch.setenv("OTK_CONFIG", str(config))
+    monkeypatch.setenv("OTK_DATA_DIR", str(tmp_path / "from-env"))
+    get_settings.cache_clear()
+
+    assert get_settings().data_dir == tmp_path / "from-env"
+    get_settings.cache_clear()

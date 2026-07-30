@@ -25,6 +25,46 @@ DEFAULT_MAX_BODY_MB = 36
 DEFAULT_MAX_FILES = 10
 
 
+# Read before the environment is consulted, so `otk` and the systemd units
+# agree without anyone having to remember a prefix. systemd reads the same
+# file via EnvironmentFile; a bare shell would otherwise fall back to a
+# different default and silently operate on a second database.
+CONFIG_SEARCH_PATH = (
+    Path("/etc/odoo-tickets/env"),
+    Path.home() / ".config" / "odoo-tickets" / "env",
+)
+
+
+def _load_env_file() -> Path | None:
+    """Apply the first config file found, without overriding the environment.
+
+    Real environment variables win, so `OTK_DATA_DIR=... otk ...` still works
+    for one-off overrides.
+    """
+    explicit = os.environ.get("OTK_CONFIG", "").strip()
+    candidates = (Path(explicit),) if explicit else CONFIG_SEARCH_PATH
+
+    for path in candidates:
+        try:
+            if not path.is_file():
+                continue
+            text = path.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        for line in text.splitlines():
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            line = line.removeprefix("export ").strip()
+            key, sep, value = line.partition("=")
+            if not sep:
+                continue
+            value = value.strip().strip("'\"")
+            os.environ.setdefault(key.strip(), value)
+        return path
+    return None
+
+
 def _env_int(name: str, default: int) -> int:
     raw = os.environ.get(name)
     if raw is None or raw.strip() == "":
@@ -103,6 +143,7 @@ def _load_secret(data_dir: Path) -> str:
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
+    _load_env_file()
     data_dir = Path(os.environ.get("OTK_DATA_DIR", str(DEFAULT_DATA_DIR))).expanduser()
     data_dir.mkdir(parents=True, exist_ok=True)
 
