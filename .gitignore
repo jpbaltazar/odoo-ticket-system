@@ -1,3 +1,4 @@
 ./src/otk/__pycache__/**
 src/otk/__pycache__/
+tests/__pycache__
 

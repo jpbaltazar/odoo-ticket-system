@@ -499,3 +499,50 @@ def test_last_operator_can_be_removed_with_force(store):
 def test_removing_an_unknown_operator_is_an_error(store):
     with pytest.raises(ServiceError):
         store.delete_operator("nobody")
+
+
+# ------------------------------------------------- password reset round trip
+
+
+def test_reset_password_then_log_in_with_it(settings, store):
+    """The reset must actually take effect for a *separate* process, which is
+    how the CLI and the web service relate on a real deployment."""
+    store.set_operator_password("jose", "second-password-here")
+    with TestClient(create_web_app(settings, Store(settings))) as client:
+        ok = client.post(
+            "/login",
+            data={"username": "jose", "password": "second-password-here"},
+            follow_redirects=False,
+        )
+        stale = client.post(
+            "/login", data={"username": "jose", "password": PASSWORD}, follow_redirects=False
+        )
+    assert ok.status_code == 303
+    assert stale.status_code == 401
+
+
+@pytest.mark.parametrize(
+    "password",
+    [
+        "p@ss w0rd$with'quotes\"&sym#12",   # shell and SQL metacharacters
+        "sen ha com espaços e acentuação",  # spaces and non-ASCII
+        "x" * 200,                          # long
+    ],
+)
+def test_awkward_passwords_round_trip(settings, store, password):
+    store.set_operator_password("jose", password)
+    with TestClient(create_web_app(settings, Store(settings))) as client:
+        response = client.post(
+            "/login",
+            data={"username": "jose", "password": password},
+            follow_redirects=False,
+        )
+    assert response.status_code == 303
+
+
+def test_username_is_case_insensitive(settings, store):
+    with TestClient(create_web_app(settings, Store(settings))) as client:
+        response = client.post(
+            "/login", data={"username": "JOSE", "password": PASSWORD}, follow_redirects=False
+        )
+    assert response.status_code == 303

@@ -319,6 +319,36 @@ def operator_list() -> None:
     console.print(table)
 
 
+@operator_app.command("check")
+def operator_check(
+    username: Annotated[str, typer.Argument(help="Login name")],
+) -> None:
+    """Test a password against the database, without a browser.
+
+    Separates the two reasons a login fails — wrong password, or the web
+    service reading a different database than the one you edited.
+    """
+    store = _store(announce=True)
+    names = [row["username"] for row in store.list_operators()]
+    console.print(f"operators in this database: {', '.join(names) or '[red]none[/red]'}")
+    if username.strip().lower() not in names:
+        console.print(
+            f"[red]{username!r} is not in this database.[/red] The web service may be "
+            "reading a different one — compare with:\n"
+            "  tr '\\0' '\\n' < /proc/$(systemctl show -p MainPID --value otk-web)/environ"
+            " | grep OTK_DATA_DIR"
+        )
+        raise typer.Exit(1)
+
+    password = typer.prompt("Password", hide_input=True)
+    try:
+        store.login(username, password, user_agent="otk operator check")
+    except ServiceError as exc:
+        console.print(f"[red]rejected[/red] — {exc.message}")
+        raise typer.Exit(1)
+    console.print("[green]accepted[/green] — these credentials work on this database")
+
+
 @operator_app.command("remove")
 def operator_remove(
     username: Annotated[str, typer.Argument(help="Login name")],
