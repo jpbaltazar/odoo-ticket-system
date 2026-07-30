@@ -1,0 +1,70 @@
+#cloud-config
+# Paste into Hetzner's "Cloud config" box when creating the server.
+# Replace YOUR_SSH_PUBLIC_KEY and the two hostnames before using.
+
+users:
+  - name: jose
+    groups: [sudo]
+    shell: /bin/bash
+    sudo: ["ALL=(ALL) NOPASSWD:ALL"]
+    ssh_authorized_keys:
+      # Hetzner injects your key into root. If you do not repeat it here you
+      # will lock yourself out the moment root login is disabled below.
+      - YOUR_SSH_PUBLIC_KEY
+
+  # Runs the two services. No shell, no login.
+  - name: otk
+    system: true
+    shell: /usr/sbin/nologin
+    home: /var/lib/odoo-tickets
+
+# Key-only auth.
+disable_root: true
+ssh_pwauth: false
+
+package_update: true
+package_upgrade: true
+packages:
+  - git
+  - curl
+  - ufw
+  - nginx
+  - certbot
+  - python3-certbot-nginx
+  - python3
+  - python3-venv
+  - sqlite3
+  - fail2ban
+  - unattended-upgrades
+
+write_files:
+  - path: /etc/odoo-tickets/env
+    owner: root:otk
+    permissions: "0640"
+    content: |
+      OTK_DATA_DIR=/var/lib/odoo-tickets
+      OTK_HOST=127.0.0.1
+      OTK_PORT=8787
+      OTK_WEB_PORT=8788
+      OTK_TZ=Europe/Lisbon
+      OTK_RETENTION_DAYS=0
+
+runcmd:
+  # Firewall: 22/80/443 in, everything out.
+  - ufw default deny incoming
+  - ufw default allow outgoing
+  - ufw limit 22/tcp
+  - ufw allow 80/tcp
+  - ufw allow 443/tcp
+  - ufw --force enable
+
+  - systemctl enable --now fail2ban unattended-upgrades
+
+  - install -d -o otk -g otk -m 750 /var/lib/odoo-tickets
+  - install -d -o root -g otk -m 750 /etc/odoo-tickets
+
+  # Kept out of this file on purpose: cloning a private repo needs a deploy
+  # key, and cloud-init is not the place to put one. See deploy/README.md for
+  # the install, which is four commands.
+
+final_message: "Ready. Now: clone to /opt/odoo-tickets, install, then certbot --nginx"

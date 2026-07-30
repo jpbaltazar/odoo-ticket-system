@@ -1,0 +1,42 @@
+# Caddy handles certificates automatically and sets X-Forwarded-Proto, which
+# is what makes the operator UI mark its session cookie Secure. Recommended
+# over nginx here purely because there is no certificate plumbing to get wrong.
+#
+# Install to /etc/caddy/Caddyfile, then: systemctl reload caddy
+
+# --- client-facing intake API -----------------------------------------------
+tickets.example.com {
+	reverse_proxy 127.0.0.1:8787
+
+	# Must sit at or above OTK_MAX_BODY_MB (36) or large screenshots are
+	# rejected by the proxy before the server can return its own 413.
+	request_body {
+		max_size 40MB
+	}
+
+	encode gzip
+	log {
+		output file /var/log/caddy/tickets-access.log
+	}
+}
+
+# --- operator UI ------------------------------------------------------------
+# Everything here is one person's screenshots of other companies' data. If you
+# have a static IP or a VPN, uncomment the matcher below and it stops being
+# reachable from the open internet at all.
+admin.example.com {
+	# @notmine not remote_ip 203.0.113.4/32 10.0.0.0/8
+	# respond @notmine 403
+
+	reverse_proxy 127.0.0.1:8788
+
+	# Operator replies can carry attachments too.
+	request_body {
+		max_size 40MB
+	}
+
+	encode gzip
+	log {
+		output file /var/log/caddy/admin-access.log
+	}
+}

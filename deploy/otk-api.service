@@ -1,0 +1,44 @@
+[Unit]
+Description=Odoo Tickets intake API (client-facing)
+Documentation=file:/opt/odoo-tickets/docs/API.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=exec
+User=otk
+Group=otk
+WorkingDirectory=/opt/odoo-tickets
+EnvironmentFile=/etc/odoo-tickets/env
+ExecStart=/opt/odoo-tickets/.venv/bin/otk serve
+Restart=on-failure
+RestartSec=2
+
+# This process parses uploads from other people's users, so it gets the
+# tighter of the two profiles. Run `systemd-analyze security otk-api` after
+# any change here.
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/var/lib/odoo-tickets
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectProc=invisible
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+# Files are created 0600/0700: the blob store holds clients' screenshots.
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target
