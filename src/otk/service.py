@@ -1380,6 +1380,23 @@ class Store:
         # reason to change it is that one may be in the wrong hands.
         self.revoke_operator_sessions(username)
 
+    def set_operator_display_name(self, username: str, display_name: str) -> None:
+        """Change the name shown on replies.
+
+        Only affects future comments: `comments.author_name` is a snapshot, so
+        a client never sees a past reply retroactively change who wrote it.
+        """
+        display_name = display_name.strip()
+        if not display_name:
+            raise ServiceError("invalid_name", "display name cannot be empty")
+        with self._write_lock:
+            cur = self.conn.execute(
+                "UPDATE operators SET display_name=? WHERE username=?",
+                (display_name, username.strip().lower()),
+            )
+        if cur.rowcount == 0:
+            raise NotFound(f"operator {username!r} not found")
+
     def delete_operator(self, username: str, force: bool = False) -> None:
         """Remove an operator account and every session it holds.
 

@@ -189,7 +189,9 @@ async def ticket_reply(
             author_name=operator.display_name,
             visibility="internal" if form.get("internal") else "public",
         )
-    return RedirectResponse(f"/tickets/{ticket_id}", status_code=303)
+    # Land back on the thread rather than the top of the page: after a long
+    # screenshot and context block, scrolling back down every time is tedious.
+    return RedirectResponse(f"/tickets/{ticket_id}#conversation", status_code=303)
 
 
 @router.post("/tickets/{ticket_id}/unread")

@@ -8,7 +8,7 @@
    silently dropped. #}
 {% set handled = ['url', 'page_title', 'odoo_version', 'database', 'company_name',
                   'model', 'res_id', 'view_type', 'action_xml_id', 'user_lang',
-                  'user_tz', 'error', 'browser'] %}
+                  'user_tz', 'error', 'browser', 'installed_modules'] %}
 
 <article class="ticket">
 
@@ -148,6 +148,18 @@
       <p class="muted">The client's module sent no page context.</p>
     {% endif %}
 
+    {# A real installation reports hundreds of modules. Useful when you need
+       it, overwhelming when you don't, so it stays shut until asked for. #}
+    {% set modules = ctx.get('installed_modules') %}
+    {% if modules %}
+      <details class="trace">
+        <summary>Installed modules ({{ modules|length }})</summary>
+        <ul class="modules">
+          {% for module in modules %}<li>{{ module }}</li>{% endfor %}
+        </ul>
+      </details>
+    {% endif %}
+
     {% set err = ctx.get('error') %}
     {% if err is mapping %}
       <div class="panel-error">
@@ -220,7 +232,7 @@
   </section>
 
   <!-- 7. conversation -->
-  <section class="panel">
+  <section class="panel" id="conversation">
     <h2 class="panel-title">
       Conversation
       <span class="muted">{{ ticket.comment_count }} comment{{ '' if ticket.comment_count == 1 else 's' }}</span>

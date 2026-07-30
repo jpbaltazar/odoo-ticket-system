@@ -586,3 +586,48 @@ def test_real_environment_beats_the_config_file(tmp_path, monkeypatch):
 
     assert get_settings().data_dir == tmp_path / "from-env"
     get_settings.cache_clear()
+
+
+# --------------------------------------------------------- reply ergonomics
+
+
+def test_reply_returns_to_the_conversation_not_the_top(signed_in, store):
+    """A ticket page is long — screenshot, context, modules. Landing back at
+    the top after every reply means scrolling down again each time."""
+    ticket_id = _make_ticket(store)
+    csrf = store.authenticate_session(signed_in.cookies["otk_session"]).csrf_token
+    response = signed_in.post(
+        f"/tickets/{ticket_id}/reply",
+        data={"body": "on it", "csrf_token": csrf},
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+    assert response.headers["location"].endswith("#conversation")
+
+    page = signed_in.get(f"/tickets/{ticket_id}").text
+    assert 'id="conversation"' in page, "the anchor must exist for the fragment to work"
+
+
+def test_operator_display_name_is_used_on_replies(signed_in, store):
+    store.set_operator_display_name("jose", "José Mendes")
+    ticket_id = _make_ticket(store)
+    csrf = store.authenticate_session(signed_in.cookies["otk_session"]).csrf_token
+    signed_in.post(
+        f"/tickets/{ticket_id}/reply",
+        data={"body": "hello", "csrf_token": csrf},
+        follow_redirects=False,
+    )
+    assert [c.author_name for c in store.get_ticket(ticket_id).comments] == ["José Mendes"]
+
+
+def test_renaming_an_operator_does_not_rewrite_past_replies(store):
+    """author_name is a snapshot: a client must not see who replied change."""
+    ticket_id = _make_ticket(store)
+    store.add_comment(ticket_id, body="first", author_type="agent", author_name="jose")
+    store.set_operator_display_name("jose", "José Mendes")
+    assert [c.author_name for c in store.get_ticket(ticket_id).comments] == ["jose"]
+
+
+def test_display_name_cannot_be_blanked(store):
+    with pytest.raises(ServiceError):
+        store.set_operator_display_name("jose", "   ")

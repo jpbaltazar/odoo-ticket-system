@@ -319,6 +319,20 @@ def operator_list() -> None:
     console.print(table)
 
 
+@operator_app.command("name")
+def operator_name(
+    username: Annotated[str, typer.Argument(help="Login name")],
+    display_name: Annotated[str, typer.Argument(help='Shown on replies, e.g. "José Mendes"')],
+) -> None:
+    """Set the name clients see on your replies, instead of the login handle."""
+    store = _store(announce=True)
+    try:
+        store.set_operator_display_name(username, display_name)
+    except ServiceError as exc:
+        _fail(exc)
+    console.print(f"[green]updated[/green] {username} now signs replies as {display_name!r}")
+
+
 @operator_app.command("check")
 def operator_check(
     username: Annotated[str, typer.Argument(help="Login name")],

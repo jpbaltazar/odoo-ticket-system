@@ -645,3 +645,28 @@ body.centred {
 @media (max-width: 420px) {
   .ticket-thumb { width: 72px; height: 56px; }
 }
+
+/* Installed-module list inside its collapsed <details>. Capped in height and
+   scrollable: a real Odoo install reports hundreds, and letting it size to
+   content buries the conversation below it. */
+.modules {
+  margin: 8px 0 0;
+  padding: 8px 12px;
+  max-height: 260px;
+  overflow-y: auto;
+  /* Grid rather than CSS columns: columns flow sideways and force a horizontal
+     scrollbar once the pane is narrow, whereas auto-fill just wraps to fewer
+     columns. */
+  display: grid;
+  /* min() keeps the track from exceeding a narrow container, which is what
+     makes plain minmax() overflow sideways on a phone. */
+  grid-template-columns: repeat(auto-fill, minmax(min(190px, 100%), 1fr));
+  gap: 0 18px;
+  list-style: none;
+  font-family: var(--mono, ui-monospace, monospace);
+  font-size: 12px;
+  color: var(--muted);
+  background: var(--bg-sunken, rgba(0, 0, 0, .2));
+  border-radius: 6px;
+}
+.modules li { padding: 1px 0; overflow-wrap: anywhere; }
