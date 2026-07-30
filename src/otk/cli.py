@@ -31,8 +31,19 @@ app.add_typer(key_app, name="key")
 app.add_typer(operator_app, name="operator")
 
 
-def _store() -> Store:
-    return Store(get_settings())
+def _store(announce: bool = False) -> Store:
+    """Open the store, optionally saying which database it opened.
+
+    Worth the noise on any command that writes: the data directory comes from
+    OTK_DATA_DIR, which systemd supplies from its EnvironmentFile but a plain
+    shell does not. Without this, `sudo -u otk otk operator add` silently
+    creates the account in a second database under $HOME and the service keeps
+    insisting no operator exists.
+    """
+    settings = get_settings()
+    if announce:
+        console.print(f"[dim]data dir: {settings.data_dir}[/dim]")
+    return Store(settings)
 
 
 def _fail(exc: ServiceError) -> None:
@@ -54,7 +65,7 @@ def client_add(
     with_key: Annotated[bool, typer.Option(help="Also issue a first API key")] = True,
 ) -> None:
     """Register a client and, by default, issue its first API key."""
-    store = _store()
+    store = _store(announce=True)
     resolved_slug = slug or "".join(
         ch if ch.isalnum() else "-" for ch in name.lower()
     ).strip("-").replace("--", "-")
@@ -138,7 +149,7 @@ def key_issue(
     expires_days: Annotated[Optional[int], typer.Option(help="Expiry in days")] = None,
 ) -> None:
     """Issue a new API key for a client. Printed once, then unrecoverable."""
-    store = _store()
+    store = _store(announce=True)
     try:
         client = store.get_client_by_slug(slug)
         expires = now() + timedelta(days=expires_days) if expires_days else None
@@ -228,13 +239,14 @@ def web(
     import uvicorn
 
     settings = get_settings()
-    store = _store()
-    if not store.has_operators():
+    if not _store().has_operators():
+        # Warn, but still serve. Exiting here means a service manager sees a
+        # crash loop for what is really a setup step, and the login page
+        # already tells you which command to run.
         console.print(
-            "[yellow]No operator account yet.[/yellow] Create one first:\n"
+            "[yellow]No operator account yet — nobody can sign in.[/yellow]\n"
             "  otk operator add <username>"
         )
-        raise typer.Exit(1)
     uvicorn.run(
         "otk.web.app:create_web_app",
         factory=True,
@@ -263,7 +275,7 @@ def operator_add(
     display_name: Annotated[Optional[str], typer.Option(help="Name shown on replies")] = None,
 ) -> None:
     """Create a web-UI operator account, prompting for the password."""
-    store = _store()
+    store = _store(announce=True)
     password = typer.prompt("Password", hide_input=True, confirmation_prompt=True)
     try:
         store.create_operator(username, password, display_name or username)
@@ -278,7 +290,7 @@ def operator_add(
 @operator_app.command("passwd")
 def operator_passwd(username: Annotated[str, typer.Argument(help="Login name")]) -> None:
     """Change an operator's password. Signs out all their sessions."""
-    store = _store()
+    store = _store(announce=True)
     password = typer.prompt("New password", hide_input=True, confirmation_prompt=True)
     try:
         store.set_operator_password(username, password)

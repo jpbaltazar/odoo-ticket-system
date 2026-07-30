@@ -50,6 +50,12 @@ cp deploy/otk-*.service /etc/systemd/system/
 systemctl daemon-reload
 systemctl enable --now otk-api otk-web
 systemctl status otk-api otk-web
+
+# Confirm both are actually listening before setting up the proxy — a service
+# that starts and then exits looks identical to one that never started, until
+# you try to connect and get "connection refused".
+curl -s localhost:8787/health
+curl -sI localhost:8788/login | head -1
 ```
 
 The sandboxing directives in the units are aggressive. If a service fails to
