@@ -42,6 +42,17 @@ class Category(StrEnum):
     OTHER = "other"
 
 
+class AuthorType(StrEnum):
+    """Who wrote a comment. Closed set — it decides whether a reply is unread."""
+
+    CLIENT = "client"
+    """Someone at the client, via the API."""
+    AGENT = "agent"
+    """The operator. This is what a reply from support looks like."""
+    SYSTEM = "system"
+    """Reserved for automated notes. Not emitted today."""
+
+
 class Source(StrEnum):
     ODOO_SERVER = "odoo_server"
     """Relayed by the client's Odoo backend using the client's API key."""
@@ -202,7 +213,7 @@ class AttachmentOut(BaseModel):
 
 class CommentOut(BaseModel):
     id: str
-    author_type: str
+    author_type: AuthorType
     author_name: str
     body: str
     created_at: datetime
@@ -230,7 +241,11 @@ class TicketOut(BaseModel):
     """Files attached to the ticket itself. Files sent with a reply live on
     that comment instead, so nothing is listed twice."""
     comments: list[CommentOut] | None = None
-    comment_count: int = 0
+    comment_count: int
+    """Public comments on this ticket. **Always present**, including on list
+    items where `comments` is null — required rather than defaulted so a
+    generated client cannot confuse "absent" with "none". Use it to decide
+    whether fetching the thread is worth a request."""
     comments_truncated: bool = False
     """True when `comments` holds only the most recent slice; fetch the rest
     from `GET /tickets/{id}/comments`."""
@@ -240,6 +255,9 @@ class CommentList(BaseModel):
     items: list[CommentOut]
     total: int
     has_more: bool = False
+    next_cursor: str | None = None
+    """Position to resume from, oldest-first. Present whenever paging forward
+    is possible; pass it back as `cursor`."""
 
 
 class TicketList(BaseModel):

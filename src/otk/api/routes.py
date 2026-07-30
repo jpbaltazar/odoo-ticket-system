@@ -9,6 +9,7 @@ base64 overhead for large screenshots and is what the browser flow should use.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import time
 from datetime import datetime
@@ -43,6 +44,28 @@ MAX_WAIT_SECONDS = 30
 so a held connection is never cut by something in the middle."""
 
 _POLL_INTERVAL = 1.0
+
+
+def _etag(*parts: Any) -> str:
+    """Weak validator over a request's inputs plus the data's watermark.
+
+    Weak because two byte-identical bodies are all a caller needs here; we make
+    no promise about octet equality across versions.
+    """
+    raw = "|".join("" if p is None else str(p) for p in parts)
+    return 'W/"' + hashlib.sha256(raw.encode()).hexdigest()[:20] + '"'
+
+
+def _not_modified(request: Request, etag: str) -> Response | None:
+    """Return a 304 when the caller already has this exact result.
+
+    Checked before the page is built, so an unchanged poll costs one indexed
+    aggregate and no serialisation. This is most of a polling client's traffic.
+    """
+    header = request.headers.get("if-none-match", "")
+    if header and etag in {tag.strip() for tag in header.split(",")}:
+        return Response(status_code=304, headers={"ETag": etag})
+    return None
 
 
 async def _long_poll(fetch: Callable[[], Any], wait: int, request: Request) -> Any:
@@ -301,6 +324,7 @@ async def list_tickets(
             " 0 (default) answers immediately.",
         ),
     ] = 0,
+    response: Response = None,  # type: ignore[assignment]
     principal: Principal = Depends(require_api_key),
     store: Store = Depends(get_store),
 ) -> TicketList:
@@ -316,6 +340,14 @@ async def list_tickets(
       have to reason about timestamps. Do not mix a cursor from one mode into
       the other — it is rejected rather than silently skipping rows.
     """
+    watermark = await run_in_threadpool(lambda: store.client_watermark(principal.client_id))
+    etag = _etag(
+        "tickets", cursor, updated_since, status, search, reporter_email, limit, *watermark
+    )
+    cached = _not_modified(request, etag)
+    if cached is not None:
+        return cached
+
     def fetch():
         tickets, next_cursor, has_more = store.list_tickets(
             TicketFilters(
@@ -351,6 +383,19 @@ async def list_tickets(
     else:
         tickets, next_cursor, has_more = result
 
+    if response is not None:
+        # Recomputed after a long poll, since the watermark may have moved
+        # while the request was held open.
+        response.headers["ETag"] = _etag(
+            "tickets",
+            cursor,
+            updated_since,
+            status,
+            search,
+            reporter_email,
+            limit,
+            *await run_in_threadpool(lambda: store.client_watermark(principal.client_id)),
+        )
     return TicketList(
         items=[ticket_out(t, include_comments=False) for t in tickets],
         next_cursor=next_cursor,
@@ -407,6 +452,7 @@ async def list_comments(
     request: Request,
     ticket_id: str,
     since: Annotated[datetime | None, Query(description="Only comments created after this")] = None,
+    cursor: Annotated[str | None, Query(description="Resume from a previous next_cursor")] = None,
     limit: Annotated[int, Query(ge=1, le=200)] = 100,
     wait: Annotated[
         int,
@@ -414,32 +460,60 @@ async def list_comments(
             ge=0,
             le=MAX_WAIT_SECONDS,
             description="Hold the request up to this many seconds waiting for a new"
-            " comment. Use with `since` for a live conversation; 0 (default) answers"
-            " immediately.",
+            " comment. 0 (default) answers immediately. Not usable from Odoo's"
+            " Python workers — see the note on GET /tickets.",
         ),
     ] = 0,
+    response: Response = None,  # type: ignore[assignment]
     principal: Principal = Depends(require_api_key),
     store: Store = Depends(get_store),
 ) -> CommentList:
-    """Comments oldest-first.
+    """Read a thread forwards, oldest first.
 
-    Two modes from one endpoint. `since` alone is ordinary polling, right for a
-    background job. Adding `wait` holds the connection until a reply lands, so
-    a conversation someone is actually watching updates the moment the operator
-    hits send, without hammering the server.
+    Paging is keyset, like the ticket feed: persist `next_cursor` and pass it
+    back. `since` seeds the first call. Both are safe on a long thread — the
+    window moves forward from a position rather than being anchored to the
+    newest N, so nothing older can become unreachable.
     """
     ticket = await run_in_threadpool(
         lambda: store.get_ticket(ticket_id, client_id=principal.client_id, comment_limit=None)
     )
 
-    def fetch():
-        found = store.list_comments(ticket.id, limit=limit, since=since)
-        return found or None
+    watermark = await run_in_threadpool(lambda: store.comment_watermark(ticket.id))
+    etag = _etag("comments", ticket.id, cursor, since, limit, *watermark)
+    cached = _not_modified(request, etag)
+    if cached is not None:
+        return cached
 
-    items = await _long_poll(fetch, wait, request) or []
+    def fetch():
+        items, next_cursor, has_more = store.page_comments(
+            ticket.id, limit=limit, since=since, cursor=cursor
+        )
+        return (items, next_cursor, has_more) if items else None
+
+    result = await _long_poll(fetch, wait, request)
+    if result is None:
+        items, next_cursor, has_more = await run_in_threadpool(
+            lambda: store.page_comments(ticket.id, limit=limit, since=since, cursor=cursor)
+        )
+    else:
+        items, next_cursor, has_more = result
+
     total = await run_in_threadpool(lambda: store.count_comments(ticket.id))
+    if response is not None:
+        response.headers["ETag"] = _etag(
+            "comments",
+            ticket.id,
+            cursor,
+            since,
+            limit,
+            *await run_in_threadpool(lambda: store.comment_watermark(ticket.id)),
+        )
     return CommentList(
-        items=[comment_out(c) for c in items], total=total, has_more=len(items) < total
+        items=[comment_out(c) for c in items],
+        total=total,
+        has_more=has_more,
+        next_cursor=next_cursor,
     )
 
 

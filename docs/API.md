@@ -572,13 +572,22 @@ POST /api/v1/tickets/{id}/comments   →  201
 **`wait` turns polling into a live feed.** With `wait=25` the server holds the
 connection and responds the instant the operator replies, or after 25 seconds
 with `"items": []` if nothing happened — loop and call again. It costs one
-request against the rate limit however long it holds, so it is far cheaper
-than polling every few seconds, and it is backwards compatible: omit it and
-the endpoint behaves exactly as before.
+request against the rate limit however long it holds, and it is backwards
+compatible: omit it and the endpoint behaves exactly as before. It works on
+`GET /tickets` too, picking up status changes as well as replies.
 
-`wait` works on `GET /tickets` too, picking up status changes as well as
-replies. Set your HTTP client's timeout above `wait`, and see
-[RECEIVING-REPLIES.md](RECEIVING-REPLIES.md) for the full loop.
+> ⚠️ **Do not call this from Odoo's Python workers.** Odoo serves one request
+> per worker, so a held request occupies a whole worker for its duration — and
+> a watch loop re-polls immediately on return, pinning that worker
+> indefinitely. A handful of open tabs will stall a small instance. This is
+> the same constraint that makes Odoo run its own bus on a separate gevent
+> port rather than through normal workers.
+>
+> `wait` is for callers that multiplex connections cheaply: a browser talking
+> to this API directly, or an async service. **From Odoo, poll instead** — see
+> §6.6 for making that cheap.
+
+Set your HTTP client's timeout above `wait`.
 
 `POST` body:
 
@@ -604,7 +613,36 @@ history through every request. Two fields tell you where you stand:
 
 When `comments_truncated` is true, page the rest from the comments endpoint.
 
-### 6.6 Attachments
+### 6.6 Making frequent polling cheap
+
+Both `GET /tickets` and `GET /tickets/{id}/comments` are conditional. Keep the
+`ETag` and send it back:
+
+```http
+GET /api/v1/tickets?cursor=...
+If-None-Match: W/"3f9a1c2b4d5e6f708192"
+```
+
+Nothing changed → **`304 Not Modified`**, no body. The check is a single
+indexed aggregate, so an idle poll costs almost nothing on either side. Since
+an idle poll is most of a polling client's traffic, this is the single biggest
+saving available.
+
+Two things to know:
+
+- The validator is **weak** (`W/`). Compare the header verbatim; don't assume
+  byte-identical bodies across versions.
+- A `304` still counts as one request against the rate limit.
+
+**Rate limit budget.** 120 requests/minute per credential. A 10-second watch
+loop is 6/min per open ticket; a once-a-minute background sync is 1/min. Three
+people watching plus the sync is ~19/min, comfortably inside — and most of
+those will be `304`s. Ticket creation comes out of the same budget, so the
+headroom matters on a busy morning. Every authenticated response carries
+`X-RateLimit-Remaining` and `X-RateLimit-Reset`; pace against those rather than
+guessing.
+
+### 6.7 Attachments
 
 ```
 POST /api/v1/tickets/{id}/attachments      body: [ <file object>, … ]

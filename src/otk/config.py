@@ -94,7 +94,7 @@ class Settings:
     max_body_bytes: int = DEFAULT_MAX_BODY_MB * 1024 * 1024
     max_files_per_ticket: int = DEFAULT_MAX_FILES
     upload_token_ttl_seconds: int = 600
-    rate_limit_per_minute: int = 60
+    rate_limit_per_minute: int = 120
     cors_origins: tuple[str, ...] = ()
     retention_days: int = 0
     """Age past which a closed ticket's files are purged by `otk purge --auto`.
@@ -162,7 +162,7 @@ def get_settings() -> Settings:
         max_body_bytes=_env_int("OTK_MAX_BODY_MB", DEFAULT_MAX_BODY_MB) * 1024 * 1024,
         max_files_per_ticket=_env_int("OTK_MAX_FILES", DEFAULT_MAX_FILES),
         upload_token_ttl_seconds=_env_int("OTK_UPLOAD_TOKEN_TTL", 600),
-        rate_limit_per_minute=_env_int("OTK_RATE_LIMIT", 60),
+        rate_limit_per_minute=_env_int("OTK_RATE_LIMIT", 120),
         cors_origins=origins,
         retention_days=_env_int("OTK_RETENTION_DAYS", 0),
         display_tz=os.environ.get("OTK_TZ", "").strip(),

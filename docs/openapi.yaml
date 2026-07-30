@@ -543,17 +543,16 @@ paths:
       tags:
       - comments
       summary: List Comments
-      description: 'Comments oldest-first.
+      description: 'Read a thread forwards, oldest first.
 
 
-        Two modes from one endpoint. `since` alone is ordinary polling, right for
-        a
+        Paging is keyset, like the ticket feed: persist `next_cursor` and pass it
 
-        background job. Adding `wait` holds the connection until a reply lands, so
+        back. `since` seeds the first call. Both are safe on a long thread — the
 
-        a conversation someone is actually watching updates the moment the operator
+        window moves forward from a position rather than being anchored to the
 
-        hits send, without hammering the server.'
+        newest N, so nothing older can become unreachable.'
       operationId: list_comments_api_v1_tickets__ticket_id__comments_get
       parameters:
       - name: ticket_id
@@ -573,6 +572,16 @@ paths:
           description: Only comments created after this
           title: Since
         description: Only comments created after this
+      - name: cursor
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          description: Resume from a previous next_cursor
+          title: Cursor
+        description: Resume from a previous next_cursor
       - name: limit
         in: query
         required: false
@@ -590,12 +599,13 @@ paths:
           maximum: 30
           minimum: 0
           description: Hold the request up to this many seconds waiting for a new
-            comment. Use with `since` for a live conversation; 0 (default) answers
-            immediately.
+            comment. 0 (default) answers immediately. Not usable from Odoo's Python
+            workers — see the note on GET /tickets.
           default: 0
           title: Wait
         description: Hold the request up to this many seconds waiting for a new comment.
-          Use with `since` for a live conversation; 0 (default) answers immediately.
+          0 (default) answers immediately. Not usable from Odoo's Python workers —
+          see the note on GET /tickets.
       responses:
         '200':
           description: Successful Response
@@ -926,6 +936,15 @@ components:
       - created_at
       - download_url
       title: AttachmentOut
+    AuthorType:
+      type: string
+      enum:
+      - client
+      - agent
+      - system
+      title: AuthorType
+      description: Who wrote a comment. Closed set — it decides whether a reply is
+        unread.
     Category:
       type: string
       enum:
@@ -977,6 +996,11 @@ components:
           type: boolean
           title: Has More
           default: false
+        next_cursor:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Next Cursor
       type: object
       required:
       - items
@@ -988,8 +1012,7 @@ components:
           type: string
           title: Id
         author_type:
-          type: string
-          title: Author Type
+          $ref: '#/components/schemas/AuthorType'
         author_name:
           type: string
           title: Author Name
@@ -1212,7 +1235,6 @@ components:
         comment_count:
           type: integer
           title: Comment Count
-          default: 0
         comments_truncated:
           type: boolean
           title: Comments Truncated
@@ -1229,6 +1251,7 @@ components:
       - source
       - created_at
       - updated_at
+      - comment_count
       title: TicketOut
     TicketStatus:
       type: string

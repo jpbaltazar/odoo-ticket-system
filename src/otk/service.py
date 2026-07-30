@@ -209,6 +209,7 @@ class TicketRecord:
 # than silently skipping rows.
 INBOX_MODE = "inbox"  # created_at DESC — a human reading newest-first
 SYNC_MODE = "sync"  # updated_at ASC — a resumable change feed
+COMMENT_MODE = "cmt"  # created_at ASC — a thread read forwards
 
 
 def _encode_cursor(mode: str, sort_value: str, ticket_id: str) -> str:
@@ -222,7 +223,7 @@ def _decode_cursor(cursor: str) -> tuple[str, str, str]:
         parts = base64.urlsafe_b64decode(padded).decode().split("|")
     except Exception as exc:
         raise ServiceError("invalid_cursor", "cursor is malformed") from exc
-    if len(parts) != 3 or not all(parts) or parts[0] not in (INBOX_MODE, SYNC_MODE):
+    if len(parts) != 3 or not all(parts) or parts[0] not in (INBOX_MODE, SYNC_MODE, COMMENT_MODE):
         raise ServiceError("invalid_cursor", "cursor is malformed")
     return parts[0], parts[1], parts[2]
 
@@ -1266,6 +1267,60 @@ class Store:
                 by_comment.setdefault(att.comment_id, []).append(att)
         return [self._comment_row(row, by_comment.get(row["id"], [])) for row in rows]
 
+    def page_comments(
+        self,
+        ticket_id: str,
+        *,
+        include_internal: bool = False,
+        limit: int = 100,
+        since: datetime | None = None,
+        cursor: str | None = None,
+    ) -> tuple[list[CommentRecord], str | None, bool]:
+        """Read a thread forwards, oldest first, with a resumable cursor.
+
+        `list_comments(limit=N)` returns the newest N, which is right for the
+        preview embedded in a ticket but wrong as an API window: combined with
+        a `since` that only moves forward, any comment older than the newest N
+        becomes permanently unreachable on a long thread. Paging forward from
+        a keyset cursor has no such hole.
+        """
+        sql = "SELECT * FROM comments WHERE ticket_id=?"
+        params: list[Any] = [ticket_id]
+        if not include_internal:
+            sql += " AND visibility='public'"
+
+        if cursor:
+            mode, value, comment_id = _decode_cursor(cursor)
+            if mode != COMMENT_MODE:
+                raise ServiceError("invalid_cursor", "not a comment cursor")
+            # id tie-breaks comments sharing a timestamp, so none is stepped over.
+            sql += " AND (created_at, id) > (?, ?)"
+            params.extend([value, comment_id])
+        elif since is not None:
+            sql += " AND created_at > ?"
+            params.append(iso(since))
+
+        limit = max(1, min(limit, 200))
+        sql += " ORDER BY created_at ASC, id ASC LIMIT ?"
+        params.append(limit + 1)
+
+        rows = list(self.conn.execute(sql, params))
+        has_more = len(rows) > limit
+        rows = rows[:limit]
+
+        by_comment: dict[str, list[AttachmentRecord]] = {}
+        for att in self._attachments_for(ticket_id):
+            if att.comment_id:
+                by_comment.setdefault(att.comment_id, []).append(att)
+        items = [self._comment_row(row, by_comment.get(row["id"], [])) for row in rows]
+
+        next_cursor = (
+            _encode_cursor(COMMENT_MODE, iso(items[-1].created_at), items[-1].id)
+            if items
+            else cursor
+        )
+        return items, next_cursor, has_more
+
     def count_comments(self, ticket_id: str, include_internal: bool = False) -> int:
         sql = "SELECT COUNT(*) AS n FROM comments WHERE ticket_id=?"
         if not include_internal:
@@ -1325,6 +1380,30 @@ class Store:
         return self.blobs.path_for(record.sha256)
 
     # ------------------------------------------------------------------ stats
+
+    def client_watermark(self, client_id: str) -> tuple[int, str]:
+        """Cheapest possible "has anything changed for this client" probe.
+
+        One indexed aggregate, used to answer a conditional request with 304
+        without building the page. `updated_at` moves on every mutation and the
+        count moves on create/delete, so together they cannot miss a change.
+        """
+        row = self.conn.execute(
+            "SELECT COUNT(*) AS n, COALESCE(MAX(updated_at), '') AS m"
+            " FROM tickets WHERE client_id=?",
+            (client_id,),
+        ).fetchone()
+        return row["n"], row["m"]
+
+    def comment_watermark(self, ticket_id: str, include_internal: bool = False) -> tuple[int, str]:
+        sql = (
+            "SELECT COUNT(*) AS n, COALESCE(MAX(created_at), '') AS m"
+            " FROM comments WHERE ticket_id=?"
+        )
+        if not include_internal:
+            sql += " AND visibility='public'"
+        row = self.conn.execute(sql, (ticket_id,)).fetchone()
+        return row["n"], row["m"]
 
     def counts_by_status(self, client_id: str | None = None) -> dict[str, int]:
         sql = "SELECT status, COUNT(*) AS n FROM tickets"

@@ -529,3 +529,135 @@ def test_long_poll_on_the_sync_feed_still_returns_a_cursor_when_idle(api, token)
     page = api.get(f"/api/v1/tickets?updated_since={marker}&wait=1", headers=auth(token)).json()
     assert page["items"] == []
     assert page["next_cursor"] is not None
+
+
+# ------------------------------------------------- comment paging (no holes)
+
+
+def test_long_thread_is_fully_reachable_by_paging_forward(api, store, token):
+    """The reported bug: `since` + a newest-N window left older comments in
+    that window permanently unreachable, because `since` only moves forward."""
+    ticket_id = _create(api, token)["id"]
+    for index in range(250):
+        store.add_comment(
+            ticket_id, body=f"reply {index}", author_type="agent", author_name="J"
+        )
+
+    seen, cursor = [], None
+    for _ in range(20):  # generous bound; loop exits on has_more
+        query = f"?limit=100&cursor={cursor}" if cursor else "?limit=100"
+        page = api.get(f"/api/v1/tickets/{ticket_id}/comments{query}", headers=auth(token)).json()
+        seen.extend(c["body"] for c in page["items"])
+        cursor = page["next_cursor"]
+        if not page["has_more"]:
+            break
+
+    assert len(seen) == 250, "every comment must be reachable"
+    assert seen == [f"reply {i}" for i in range(250)], "and in order, with no gaps"
+
+
+def test_comment_paging_is_oldest_first(api, store, token):
+    ticket_id = _create(api, token)["id"]
+    for index in range(5):
+        store.add_comment(ticket_id, body=f"m{index}", author_type="agent", author_name="J")
+    page = api.get(f"/api/v1/tickets/{ticket_id}/comments?limit=3", headers=auth(token)).json()
+    assert [c["body"] for c in page["items"]] == ["m0", "m1", "m2"]
+    assert page["has_more"] is True
+    assert page["total"] == 5
+
+
+def test_comments_sharing_a_timestamp_are_not_skipped(api, store, token):
+    ticket_id = _create(api, token)["id"]
+    for index in range(4):
+        store.add_comment(ticket_id, body=f"m{index}", author_type="agent", author_name="J")
+    with store._transaction():
+        store.conn.execute(
+            "UPDATE comments SET created_at='2030-01-01T00:00:00.000000Z' WHERE ticket_id=?",
+            (ticket_id,),
+        )
+    seen, cursor = [], None
+    for _ in range(10):
+        query = f"?limit=1&cursor={cursor}" if cursor else "?limit=1"
+        page = api.get(f"/api/v1/tickets/{ticket_id}/comments{query}", headers=auth(token)).json()
+        seen.extend(c["body"] for c in page["items"])
+        cursor = page["next_cursor"]
+        if not page["has_more"]:
+            break
+    assert sorted(seen) == ["m0", "m1", "m2", "m3"]
+
+
+# ------------------------------------------------------- conditional requests
+
+
+def test_unchanged_poll_returns_304(api, token):
+    _create(api, token)
+    first = api.get("/api/v1/tickets", headers=auth(token))
+    etag = first.headers["etag"]
+    assert etag
+
+    again = api.get("/api/v1/tickets", headers={**auth(token), "If-None-Match": etag})
+    assert again.status_code == 304
+    assert not again.content
+
+
+def test_etag_changes_when_a_ticket_changes(api, store, token):
+    ticket_id = _create(api, token)["id"]
+    etag = api.get("/api/v1/tickets", headers=auth(token)).headers["etag"]
+
+    store.add_comment(ticket_id, body="new", author_type="agent", author_name="J")
+    after = api.get("/api/v1/tickets", headers={**auth(token), "If-None-Match": etag})
+    assert after.status_code == 200, "a changed feed must not be served from cache"
+    assert after.headers["etag"] != etag
+
+
+def test_comments_support_conditional_requests(api, store, token):
+    ticket_id = _create(api, token)["id"]
+    store.add_comment(ticket_id, body="one", author_type="agent", author_name="J")
+    first = api.get(f"/api/v1/tickets/{ticket_id}/comments", headers=auth(token))
+    etag = first.headers["etag"]
+
+    cached = api.get(
+        f"/api/v1/tickets/{ticket_id}/comments", headers={**auth(token), "If-None-Match": etag}
+    )
+    assert cached.status_code == 304
+
+    store.add_comment(ticket_id, body="two", author_type="agent", author_name="J")
+    fresh = api.get(
+        f"/api/v1/tickets/{ticket_id}/comments", headers={**auth(token), "If-None-Match": etag}
+    )
+    assert fresh.status_code == 200
+    assert [c["body"] for c in fresh.json()["items"]] == ["one", "two"]
+
+
+# --------------------------------------------------------- contract details
+
+
+def test_comment_count_is_always_present_on_list_items(api, store, token):
+    """Required, not defaulted: a client must not have to guess whether an
+    absent field means zero."""
+    ticket_id = _create(api, token)["id"]
+    store.add_comment(ticket_id, body="public", author_type="agent", author_name="J")
+    store.add_comment(
+        ticket_id, body="secret", author_type="agent", author_name="J", visibility="internal"
+    )
+    item = api.get("/api/v1/tickets", headers=auth(token)).json()["items"][0]
+    assert item["comment_count"] == 1, "internal notes must not be counted"
+    assert item["comments"] is None
+
+
+def test_comment_count_is_required_in_the_schema(settings, store):
+    from otk.api.app import create_app
+
+    spec = create_app(settings, store).openapi()
+    assert "comment_count" in spec["components"]["schemas"]["TicketOut"]["required"]
+
+
+def test_author_type_is_a_documented_closed_set(settings, store):
+    from otk.api.app import create_app
+
+    spec = create_app(settings, store).openapi()
+    assert set(spec["components"]["schemas"]["AuthorType"]["enum"]) == {
+        "client",
+        "agent",
+        "system",
+    }
