@@ -56,15 +56,33 @@ def _etag(*parts: Any) -> str:
     return 'W/"' + hashlib.sha256(raw.encode()).hexdigest()[:20] + '"'
 
 
+# Every conditional response here is one client's data, keyed on the bearer
+# token. RFC 9111 already forbids a shared cache from reusing a response to an
+# authorized request, but "the spec says no intermediary would do that" is thin
+# protection for another company's screenshots, so say it explicitly.
+_CACHE_HEADERS = {
+    "Cache-Control": "private, no-cache",
+    "Vary": "Authorization",
+}
+
+
+def _conditional_headers(etag: str) -> dict[str, str]:
+    return {"ETag": etag, **_CACHE_HEADERS}
+
+
 def _not_modified(request: Request, etag: str) -> Response | None:
     """Return a 304 when the caller already has this exact result.
 
     Checked before the page is built, so an unchanged poll costs one indexed
-    aggregate and no serialisation. This is most of a polling client's traffic.
+    aggregate and no serialisation — most of a polling client's traffic.
+
+    The validator covers the query *and* the resource watermark, so replaying a
+    validator against a different query (a advanced cursor, say) correctly
+    misses rather than answering 304 and silently truncating a drain.
     """
     header = request.headers.get("if-none-match", "")
     if header and etag in {tag.strip() for tag in header.split(",")}:
-        return Response(status_code=304, headers={"ETag": etag})
+        return Response(status_code=304, headers=_conditional_headers(etag))
     return None
 
 
@@ -386,15 +404,21 @@ async def list_tickets(
     if response is not None:
         # Recomputed after a long poll, since the watermark may have moved
         # while the request was held open.
-        response.headers["ETag"] = _etag(
-            "tickets",
-            cursor,
-            updated_since,
-            status,
-            search,
-            reporter_email,
-            limit,
-            *await run_in_threadpool(lambda: store.client_watermark(principal.client_id)),
+        response.headers.update(
+            _conditional_headers(
+                _etag(
+                    "tickets",
+                    cursor,
+                    updated_since,
+                    status,
+                    search,
+                    reporter_email,
+                    limit,
+                    *await run_in_threadpool(
+                        lambda: store.client_watermark(principal.client_id)
+                    ),
+                )
+            )
         )
     return TicketList(
         items=[ticket_out(t, include_comments=False) for t in tickets],
@@ -501,13 +525,17 @@ async def list_comments(
 
     total = await run_in_threadpool(lambda: store.count_comments(ticket.id))
     if response is not None:
-        response.headers["ETag"] = _etag(
-            "comments",
-            ticket.id,
-            cursor,
-            since,
-            limit,
-            *await run_in_threadpool(lambda: store.comment_watermark(ticket.id)),
+        response.headers.update(
+            _conditional_headers(
+                _etag(
+                    "comments",
+                    ticket.id,
+                    cursor,
+                    since,
+                    limit,
+                    *await run_in_threadpool(lambda: store.comment_watermark(ticket.id)),
+                )
+            )
         )
     return CommentList(
         items=[comment_out(c) for c in items],

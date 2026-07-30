@@ -661,3 +661,41 @@ def test_author_type_is_a_documented_closed_set(settings, store):
         "agent",
         "system",
     }
+
+
+def test_validator_covers_the_query_not_just_the_resource(api, token):
+    """A validator replayed against a *different* query must miss.
+
+    If the ETag were an aggregate over the resource alone, reusing page one's
+    validator on the page-two request would answer 304 and silently truncate
+    the drain.
+    """
+    for index in range(3):
+        _create(api, token, f"T{index}")
+
+    page1 = api.get("/api/v1/tickets?limit=1", headers=auth(token))
+    etag1, cursor = page1.headers["etag"], page1.json()["next_cursor"]
+
+    page2 = api.get(
+        f"/api/v1/tickets?limit=1&cursor={cursor}",
+        headers={**auth(token), "If-None-Match": etag1},
+    )
+    assert page2.status_code == 200, "stale validator must not truncate the drain"
+    assert page2.json()["items"], "and the page must actually be returned"
+    assert page2.headers["etag"] != etag1
+
+
+def test_conditional_responses_are_marked_private(api, store, token):
+    """These carry one client's data, keyed on the bearer token. A shared cache
+    reusing them across clients would be a cross-tenant leak."""
+    ticket_id = _create(api, token)["id"]
+    for path in ("/api/v1/tickets", f"/api/v1/tickets/{ticket_id}/comments"):
+        fresh = api.get(path, headers=auth(token))
+        assert "private" in fresh.headers["cache-control"]
+        assert fresh.headers["vary"] == "Authorization"
+
+        cached = api.get(path, headers={**auth(token), "If-None-Match": fresh.headers["etag"]})
+        assert cached.status_code == 304
+        # The 304 must carry them too, or a cache can promote a stale entry.
+        assert "private" in cached.headers["cache-control"]
+        assert cached.headers["vary"] == "Authorization"

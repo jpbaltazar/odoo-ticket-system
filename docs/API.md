@@ -628,10 +628,18 @@ indexed aggregate, so an idle poll costs almost nothing on either side. Since
 an idle poll is most of a polling client's traffic, this is the single biggest
 saving available.
 
-Two things to know:
+Three things to know:
 
 - The validator is **weak** (`W/`). Compare the header verbatim; don't assume
   byte-identical bodies across versions.
+- It covers the **query as well as the resource** — cursor, `updated_since`,
+  filters, limit. So replaying a validator against a different query misses
+  rather than answering `304`, and cannot truncate a drain. You are still
+  better off only sending one for a request you are repeating verbatim, but
+  the server does not depend on you doing so.
+- Responses carry `Cache-Control: private` and `Vary: Authorization`. They are
+  one client's data keyed on the bearer token; do not put them in a shared
+  cache.
 - A `304` still counts as one request against the rate limit.
 
 **Rate limit budget.** 120 requests/minute per credential. A 10-second watch
