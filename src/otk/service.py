@@ -1380,6 +1380,32 @@ class Store:
         # reason to change it is that one may be in the wrong hands.
         self.revoke_operator_sessions(username)
 
+    def delete_operator(self, username: str, force: bool = False) -> None:
+        """Remove an operator account and every session it holds.
+
+        Replies they wrote stay on their tickets: `comments.author_name` is
+        stored as text rather than a reference, so removing the account never
+        rewrites history.
+        """
+        username = username.strip().lower()
+        row = self.conn.execute(
+            "SELECT id FROM operators WHERE username=?", (username,)
+        ).fetchone()
+        if row is None:
+            raise NotFound(f"operator {username!r} not found")
+        total = self.conn.execute("SELECT COUNT(*) AS n FROM operators").fetchone()["n"]
+        if total <= 1 and not force:
+            raise ServiceError(
+                "last_operator",
+                "that is the only operator; removing it locks you out of the web UI"
+                " (pass force=True if you mean it)",
+                409,
+            )
+        with self._write_lock:
+            # sessions.operator_id is ON DELETE CASCADE, so this signs them out.
+            self.conn.execute("DELETE FROM operators WHERE id=?", (row["id"],))
+        self._log_event(None, None, "operator", "operator.deleted", {"username": username})
+
     def list_operators(self) -> list[dict[str, Any]]:
         return [dict(r) for r in self.conn.execute("SELECT * FROM operators ORDER BY username")]
 

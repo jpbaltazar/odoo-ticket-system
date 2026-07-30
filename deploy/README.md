@@ -68,9 +68,24 @@ systemd-analyze security otk-api
 
 ## First run
 
+**Always pass `OTK_DATA_DIR`.** systemd reads it from the EnvironmentFile, but
+a shell does not — so a bare `sudo -u otk otk operator add` writes to a second
+database under `$HOME`, and the service goes on reporting that no operator
+exists. Every command below prints the directory it opened; check it matches.
+
 ```bash
-sudo -u otk /opt/odoo-tickets/.venv/bin/otk operator add jose   # web login
-sudo -u otk /opt/odoo-tickets/.venv/bin/otk client add "Acme"   # prints a key ONCE
+OTK=/opt/odoo-tickets/.venv/bin/otk
+sudo -u otk env OTK_DATA_DIR=/var/lib/odoo-tickets $OTK operator add jose
+sudo -u otk env OTK_DATA_DIR=/var/lib/odoo-tickets $OTK client add "Acme"
+```
+
+The second prints an API key **once**; it is stored only as a hash.
+
+Simpler still, put this in root's `~/.bashrc` so it is never forgotten:
+
+```bash
+export OTK_DATA_DIR=/var/lib/odoo-tickets
+alias otk='sudo -u otk -E /opt/odoo-tickets/.venv/bin/otk'
 ```
 
 ## Reverse proxy

@@ -319,6 +319,29 @@ def operator_list() -> None:
     console.print(table)
 
 
+@operator_app.command("remove")
+def operator_remove(
+    username: Annotated[str, typer.Argument(help="Login name")],
+    force: Annotated[
+        bool, typer.Option("--force", help="Allow removing the last operator")
+    ] = False,
+    yes: Annotated[bool, typer.Option("--yes", help="Skip the confirmation prompt")] = False,
+) -> None:
+    """Delete an operator account and sign out all its sessions.
+
+    Replies they already wrote stay on their tickets.
+    """
+    store = _store(announce=True)
+    if not yes and not typer.confirm(f"Remove operator {username!r}?", default=False):
+        console.print("[dim]Aborted.[/dim]")
+        return
+    try:
+        store.delete_operator(username, force=force)
+    except ServiceError as exc:
+        _fail(exc)
+    console.print(f"[red]removed[/red] operator {username}")
+
+
 @operator_app.command("logout-all")
 def operator_logout_all(username: Annotated[str, typer.Argument(help="Login name")]) -> None:
     """Revoke every active session for an operator."""

@@ -452,3 +452,50 @@ def test_timezone_reaches_the_rendered_page(settings, store):
         client.post("/login", data={"username": "jose", "password": PASSWORD})
         body = client.get("/").text
     assert "WEST" in body or "WET" in body
+
+
+# --------------------------------------------------------- removing operators
+
+
+def test_removing_an_operator_signs_out_their_sessions(store):
+    store.create_operator("second", PASSWORD)
+    cookie, _ = store.login("second", PASSWORD)
+    assert store.authenticate_session(cookie)
+
+    store.delete_operator("second")
+    with pytest.raises(ServiceError):
+        store.authenticate_session(cookie)
+
+
+def test_removing_an_operator_keeps_the_replies_they_wrote(store):
+    """History is text, not a foreign key — deleting an account must not
+    rewrite what a client already saw."""
+    store.create_operator("leaver", PASSWORD, "Departing Colleague")
+    ticket_id = _make_ticket(store)
+    store.add_comment(
+        ticket_id, body="I looked at this", author_type="agent", author_name="Departing Colleague"
+    )
+
+    store.delete_operator("leaver")
+    comments = store.get_ticket(ticket_id).comments
+    assert [(c.author_name, c.body) for c in comments] == [
+        ("Departing Colleague", "I looked at this")
+    ]
+
+
+def test_cannot_remove_the_last_operator_by_accident(store):
+    assert len(store.list_operators()) == 1
+    with pytest.raises(ServiceError) as excinfo:
+        store.delete_operator("jose")
+    assert excinfo.value.code == "last_operator"
+    assert store.list_operators(), "the account must still be there"
+
+
+def test_last_operator_can_be_removed_with_force(store):
+    store.delete_operator("jose", force=True)
+    assert store.list_operators() == []
+
+
+def test_removing_an_unknown_operator_is_an_error(store):
+    with pytest.raises(ServiceError):
+        store.delete_operator("nobody")
