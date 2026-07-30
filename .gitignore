@@ -2,3 +2,32 @@
 src/otk/__pycache__/
 tests/__pycache__
 
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.venv/
+
+# Tooling
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.claude/settings.local.json
+
+# Runtime data — never commit. secret.key is the pepper behind every issued
+# API key; blobs/ and thumbs/ are clients' screenshots.
+secret.key
+*.db
+*.db-wal
+*.db-shm
+blobs/
+thumbs/
+
+# Filled-in deployment files carry real hostnames and live on the server.
+# The .example templates are tracked.
+deploy/otk.env
+deploy/Caddyfile
+deploy/nginx.conf
