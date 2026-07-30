@@ -442,6 +442,7 @@ GET /api/v1/tickets?limit=50&status=open&search=stock&updated_since=…&cursor=�
 | `reporter_email` | exact, case-insensitive |
 | `limit` | 1–200, default 50 |
 | `cursor` | opaque; from the previous page's `next_cursor` |
+| `wait` | 0–30 seconds; hold the request until something changes. Default 0. |
 
 ```json
 { "items": [ { "...": "TicketOut, with \"comments\": null" } ],
@@ -566,6 +567,18 @@ POST /api/v1/tickets/{id}/comments   →  201
 | --- | --- |
 | `since` | ISO-8601; only comments created after it. Use this to poll a busy ticket. |
 | `limit` | 1–200, default 100. Returns the **newest** N, in chronological order. |
+| `wait` | 0–30 seconds. Hold the request open until a comment arrives. Default 0 = answer immediately. |
+
+**`wait` turns polling into a live feed.** With `wait=25` the server holds the
+connection and responds the instant the operator replies, or after 25 seconds
+with `"items": []` if nothing happened — loop and call again. It costs one
+request against the rate limit however long it holds, so it is far cheaper
+than polling every few seconds, and it is backwards compatible: omit it and
+the endpoint behaves exactly as before.
+
+`wait` works on `GET /tickets` too, picking up status changes as well as
+replies. Set your HTTP client's timeout above `wait`, and see
+[RECEIVING-REPLIES.md](RECEIVING-REPLIES.md) for the full loop.
 
 `POST` body:
 

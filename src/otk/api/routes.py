@@ -8,12 +8,15 @@ base64 overhead for large screenshots and is what the browser flow should use.
 
 from __future__ import annotations
 
+import asyncio
 import json
+import time
 from datetime import datetime
-from typing import Annotated, Any
+from typing import Annotated, Any, Callable
 
 from fastapi import APIRouter, Depends, Query, Request, Response
 from pydantic import ValidationError
+from starlette.concurrency import run_in_threadpool
 
 from ..schemas import (
     CommentCreate,
@@ -34,6 +37,37 @@ from .deps import get_principal, get_store, require_api_key
 from .serializers import attachment_out, comment_out, incoming_from_inline, ticket_out
 
 router = APIRouter(prefix="/api/v1")
+
+MAX_WAIT_SECONDS = 30
+"""Ceiling on a long poll. Kept well under the 60s most proxies default to,
+so a held connection is never cut by something in the middle."""
+
+_POLL_INTERVAL = 1.0
+
+
+async def _long_poll(fetch: Callable[[], Any], wait: int, request: Request) -> Any:
+    """Call `fetch` until it returns something truthy or the budget runs out.
+
+    SQLite has no change notification, so this is a server-side poll — but the
+    caller gets push-like latency from a single held connection instead of
+    hammering the endpoint. `wait=0` degrades to exactly one call, which is
+    what a background cron wants.
+    """
+    result = await run_in_threadpool(fetch)
+    if result or wait <= 0:
+        return result
+
+    deadline = time.monotonic() + min(wait, MAX_WAIT_SECONDS)
+    while time.monotonic() < deadline:
+        # Stop burning cycles the moment the caller hangs up.
+        if await request.is_disconnected():
+            return result
+        remaining = deadline - time.monotonic()
+        await asyncio.sleep(min(_POLL_INTERVAL, max(0.0, remaining)))
+        result = await run_in_threadpool(fetch)
+        if result:
+            return result
+    return result
 
 COMMON_ERRORS: dict[int | str, dict[str, Any]] = {
     400: {"model": ErrorOut, "description": "Malformed request"},
@@ -250,13 +284,23 @@ async def create_ticket(
 
 
 @router.get("/tickets", response_model=TicketList, responses=COMMON_ERRORS, tags=["tickets"])
-def list_tickets(
+async def list_tickets(
+    request: Request,
     status: Annotated[list[str] | None, Query(description="Repeatable status filter")] = None,
     updated_since: Annotated[datetime | None, Query()] = None,
     search: Annotated[str | None, Query(max_length=200)] = None,
     reporter_email: Annotated[str | None, Query(max_length=200)] = None,
     limit: Annotated[int, Query(ge=1, le=200)] = 50,
     cursor: Annotated[str | None, Query()] = None,
+    wait: Annotated[
+        int,
+        Query(
+            ge=0,
+            le=MAX_WAIT_SECONDS,
+            description="Hold the request up to this many seconds waiting for a change."
+            " 0 (default) answers immediately.",
+        ),
+    ] = 0,
     principal: Principal = Depends(require_api_key),
     store: Store = Depends(get_store),
 ) -> TicketList:
@@ -272,17 +316,41 @@ def list_tickets(
       have to reason about timestamps. Do not mix a cursor from one mode into
       the other — it is rejected rather than silently skipping rows.
     """
-    tickets, next_cursor, has_more = store.list_tickets(
-        TicketFilters(
-            client_id=principal.client_id,
-            statuses=status,
-            search=search,
-            updated_since=updated_since,
-            reporter_email=reporter_email,
-            limit=limit,
-            cursor=cursor,
+    def fetch():
+        tickets, next_cursor, has_more = store.list_tickets(
+            TicketFilters(
+                client_id=principal.client_id,
+                statuses=status,
+                search=search,
+                updated_since=updated_since,
+                reporter_email=reporter_email,
+                limit=limit,
+                cursor=cursor,
+            )
         )
-    )
+        # Falsy when empty, which is what tells the long poll to keep waiting.
+        return (tickets, next_cursor, has_more) if tickets else None
+
+    result = await _long_poll(fetch, wait, request)
+    if result is None:
+        # Timed out with nothing new: re-read once so the caller still gets a
+        # cursor to resume from rather than a null.
+        tickets, next_cursor, has_more = await run_in_threadpool(
+            lambda: store.list_tickets(
+                TicketFilters(
+                    client_id=principal.client_id,
+                    statuses=status,
+                    search=search,
+                    updated_since=updated_since,
+                    reporter_email=reporter_email,
+                    limit=limit,
+                    cursor=cursor,
+                )
+            )
+        )
+    else:
+        tickets, next_cursor, has_more = result
+
     return TicketList(
         items=[ticket_out(t, include_comments=False) for t in tickets],
         next_cursor=next_cursor,
@@ -335,17 +403,41 @@ def update_ticket(
     responses=COMMON_ERRORS,
     tags=["comments"],
 )
-def list_comments(
+async def list_comments(
+    request: Request,
     ticket_id: str,
     since: Annotated[datetime | None, Query(description="Only comments created after this")] = None,
     limit: Annotated[int, Query(ge=1, le=200)] = 100,
+    wait: Annotated[
+        int,
+        Query(
+            ge=0,
+            le=MAX_WAIT_SECONDS,
+            description="Hold the request up to this many seconds waiting for a new"
+            " comment. Use with `since` for a live conversation; 0 (default) answers"
+            " immediately.",
+        ),
+    ] = 0,
     principal: Principal = Depends(require_api_key),
     store: Store = Depends(get_store),
 ) -> CommentList:
-    """Comments oldest-first. Poll with `since` to pick up only new replies."""
-    ticket = store.get_ticket(ticket_id, client_id=principal.client_id, comment_limit=None)
-    total = store.count_comments(ticket.id)
-    items = store.list_comments(ticket.id, limit=limit, since=since)
+    """Comments oldest-first.
+
+    Two modes from one endpoint. `since` alone is ordinary polling, right for a
+    background job. Adding `wait` holds the connection until a reply lands, so
+    a conversation someone is actually watching updates the moment the operator
+    hits send, without hammering the server.
+    """
+    ticket = await run_in_threadpool(
+        lambda: store.get_ticket(ticket_id, client_id=principal.client_id, comment_limit=None)
+    )
+
+    def fetch():
+        found = store.list_comments(ticket.id, limit=limit, since=since)
+        return found or None
+
+    items = await _long_poll(fetch, wait, request) or []
+    total = await run_in_threadpool(lambda: store.count_comments(ticket.id))
     return CommentList(
         items=[comment_out(c) for c in items], total=total, has_more=len(items) < total
     )

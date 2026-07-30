@@ -459,3 +459,73 @@ def test_cors_preflight_allows_the_idempotency_header(api):
     assert response.status_code == 200
     allowed = response.headers["access-control-allow-headers"].lower()
     assert "idempotency-key" in allowed
+
+
+# ---------------------------------------------------------------- long poll
+
+
+def test_long_poll_returns_the_moment_a_reply_lands(api, store, token):
+    """The point of the feature: latency should track the reply, not the
+    timeout."""
+    import threading
+    import time
+
+    ticket_id = _create(api, token)["id"]
+    marker = api.get("/api/v1/whoami", headers=auth(token)).json()["server_time"]
+
+    def reply_shortly():
+        time.sleep(0.4)
+        store.add_comment(ticket_id, body="quick", author_type="agent", author_name="J")
+
+    worker = threading.Thread(target=reply_shortly)
+    worker.start()
+    started = time.monotonic()
+    response = api.get(
+        f"/api/v1/tickets/{ticket_id}/comments?since={marker}&wait=15", headers=auth(token)
+    )
+    elapsed = time.monotonic() - started
+    worker.join()
+
+    assert [c["body"] for c in response.json()["items"]] == ["quick"]
+    assert elapsed < 8, f"waited {elapsed:.1f}s; should have returned on the reply"
+
+
+def test_long_poll_gives_up_empty_at_the_deadline(api, token):
+    import time
+
+    ticket_id = _create(api, token)["id"]
+    marker = api.get("/api/v1/whoami", headers=auth(token)).json()["server_time"]
+
+    started = time.monotonic()
+    response = api.get(
+        f"/api/v1/tickets/{ticket_id}/comments?since={marker}&wait=2", headers=auth(token)
+    )
+    elapsed = time.monotonic() - started
+
+    assert response.status_code == 200
+    assert response.json()["items"] == []
+    assert 1.0 < elapsed < 10, f"expected to hold ~2s, held {elapsed:.1f}s"
+
+
+def test_without_wait_the_endpoint_still_answers_immediately(api, token):
+    """Existing pollers must not suddenly start blocking."""
+    import time
+
+    ticket_id = _create(api, token)["id"]
+    marker = api.get("/api/v1/whoami", headers=auth(token)).json()["server_time"]
+
+    started = time.monotonic()
+    response = api.get(
+        f"/api/v1/tickets/{ticket_id}/comments?since={marker}", headers=auth(token)
+    )
+    assert response.status_code == 200
+    assert time.monotonic() - started < 1.0
+
+
+def test_long_poll_on_the_sync_feed_still_returns_a_cursor_when_idle(api, token):
+    """Timing out must not cost the caller its resume position."""
+    _create(api, token)
+    marker = api.get("/api/v1/whoami", headers=auth(token)).json()["server_time"]
+    page = api.get(f"/api/v1/tickets?updated_since={marker}&wait=1", headers=auth(token)).json()
+    assert page["items"] == []
+    assert page["next_cursor"] is not None

@@ -327,6 +327,19 @@ paths:
           - type: string
           - type: 'null'
           title: Cursor
+      - name: wait
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 30
+          minimum: 0
+          description: Hold the request up to this many seconds waiting for a change.
+            0 (default) answers immediately.
+          default: 0
+          title: Wait
+        description: Hold the request up to this many seconds waiting for a change.
+          0 (default) answers immediately.
       responses:
         '200':
           description: Successful Response
@@ -530,7 +543,17 @@ paths:
       tags:
       - comments
       summary: List Comments
-      description: Comments oldest-first. Poll with `since` to pick up only new replies.
+      description: 'Comments oldest-first.
+
+
+        Two modes from one endpoint. `since` alone is ordinary polling, right for
+        a
+
+        background job. Adding `wait` holds the connection until a reply lands, so
+
+        a conversation someone is actually watching updates the moment the operator
+
+        hits send, without hammering the server.'
       operationId: list_comments_api_v1_tickets__ticket_id__comments_get
       parameters:
       - name: ticket_id
@@ -559,6 +582,20 @@ paths:
           minimum: 1
           default: 100
           title: Limit
+      - name: wait
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 30
+          minimum: 0
+          description: Hold the request up to this many seconds waiting for a new
+            comment. Use with `since` for a live conversation; 0 (default) answers
+            immediately.
+          default: 0
+          title: Wait
+        description: Hold the request up to this many seconds waiting for a new comment.
+          Use with `since` for a live conversation; 0 (default) answers immediately.
       responses:
         '200':
           description: Successful Response
