@@ -17,6 +17,11 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# The MCP server is opt-in: the intake API and web UI must not carry an SDK
+# they never import.
+mcp = [
+    "mcp>=2.0",
+]
 dev = [
     "pytest>=8.0",
     "pytest-timeout>=2.3",

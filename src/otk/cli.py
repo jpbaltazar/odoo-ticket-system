@@ -325,6 +325,19 @@ def web(
 
 
 @app.command()
+def mcp() -> None:
+    """Run the MCP server on stdio, for an assistant to triage tickets.
+
+    Read-and-annotate only: it can leave internal notes, retag and reprioritise,
+    but there is no tool that replies to a client, closes a ticket or deletes
+    anything.
+    """
+    from .mcp_server import run as run_mcp
+
+    run_mcp()
+
+
+@app.command()
 def tui() -> None:
     """Open the ticket inbox in the terminal."""
     from .tui.app import run

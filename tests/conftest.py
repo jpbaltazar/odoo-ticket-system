@@ -31,3 +31,9 @@ def settings(tmp_path) -> Settings:
 @pytest.fixture
 def store(settings) -> Store:
     return Store(settings)
+
+
+@pytest.fixture
+def anyio_backend():
+    """The MCP tests are async; asyncio alone is enough here."""
+    return "asyncio"

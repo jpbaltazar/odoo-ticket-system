@@ -94,6 +94,36 @@ everything urgent does not decide what wakes you.
 Delivery happens after the response and can never fail a ticket: an unreachable
 phone is not the filer's problem.
 
+## Triage with an assistant
+
+`otk mcp` is an MCP server exposing the tickets to an assistant, so it can read
+a report, **look at the screenshot**, and leave findings as an internal note.
+
+```json
+"otk-tickets": {
+  "command": "ssh",
+  "args": ["root@your-server", "/opt/odoo-tickets/.venv/bin/otk", "mcp"]
+}
+```
+
+Over SSH so the database never leaves the server. Install the extra there with
+`pip install -e ".[mcp]"`.
+
+| Reads | Annotates |
+| --- | --- |
+| `list_tickets` `get_ticket` `get_screenshot` `find_similar` `list_clients` | `add_internal_note` `suggest_priority` `add_tags` |
+
+**It cannot talk to a client.** There is no tool that writes a public comment,
+closes a ticket or deletes anything, and every note it writes is
+`visibility="internal"` — which no client-facing endpoint returns — signed
+`triage (automated)` so you can tell machine notes from your own. A wrong
+internal note costs a moment's confusion; the same text sent to a client in
+your name is a different kind of problem. A test asserts the tool list, so a
+client-facing tool cannot be added by accident.
+
+`suggest_priority` requires a reason and records it, because a priority that
+changed with no explanation is worse than one that never changed.
+
 ## Configuration
 
 All optional; defaults in [`src/otk/config.py`](src/otk/config.py).
