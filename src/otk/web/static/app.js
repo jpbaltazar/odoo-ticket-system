@@ -1,12 +1,70 @@
-/* The only script in the operator UI, and it exists for one page.
+/* The only script in the operator UI.
  *
- * Purging deletes files that cannot be recovered, so the storage page gets a
- * running total of what is selected and one confirmation step. Everything else
- * in this app is a plain form on purpose: the pages must keep working if this
- * file never loads.
+ * Two jobs: a running total and a confirmation on the purge page, because it
+ * deletes files that cannot be recovered; and copy buttons on tracebacks,
+ * which otherwise mean selecting several hundred lines by hand. Everything
+ * else is a plain form on purpose — the pages must keep working if this file
+ * never loads.
  */
 (function () {
   "use strict";
+
+  // --- copy buttons -------------------------------------------------------
+  // navigator.clipboard needs a secure context, so it is absent over plain
+  // http on an IP. The textarea fallback keeps the button working there.
+  function copyText(text) {
+    if (navigator.clipboard && window.isSecureContext) {
+      return navigator.clipboard.writeText(text);
+    }
+    return new Promise(function (resolve, reject) {
+      var scratch = document.createElement("textarea");
+      scratch.value = text;
+      // Off-screen rather than hidden: a display:none element cannot be selected.
+      scratch.setAttribute("readonly", "");
+      scratch.style.position = "fixed";
+      scratch.style.top = "-1000px";
+      document.body.appendChild(scratch);
+      scratch.select();
+      try {
+        document.execCommand("copy") ? resolve() : reject(new Error("copy refused"));
+      } catch (err) {
+        reject(err);
+      } finally {
+        document.body.removeChild(scratch);
+      }
+    });
+  }
+
+  // Delegated, so it covers buttons inside a <details> that was closed at load.
+  document.addEventListener("click", function (event) {
+    var button = event.target.closest("[data-copy]");
+    if (!button) return;
+
+    var source = document.querySelector(button.getAttribute("data-copy") || "") ||
+      (button.closest("details") || document).querySelector("pre");
+    if (!source) return;
+
+    var original = button.dataset.label || button.textContent;
+    button.dataset.label = original;
+    copyText(source.textContent).then(
+      function () {
+        button.textContent = "Copied";
+        button.classList.add("is-copied");
+      },
+      function () {
+        button.textContent = "Press Ctrl+C";
+        var range = document.createRange();
+        range.selectNodeContents(source);
+        var selection = window.getSelection();
+        selection.removeAllRanges();
+        selection.addRange(range);
+      }
+    );
+    window.setTimeout(function () {
+      button.textContent = original;
+      button.classList.remove("is-copied");
+    }, 1600);
+  });
 
   var form = document.getElementById("purge-form");
   if (!form) return;

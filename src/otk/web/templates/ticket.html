@@ -177,6 +177,9 @@
           {% if err.get(key) %}
             <details class="trace">
               <summary>{{ label }}</summary>
+              {# The button is only wired up if app.js loads; without it the
+                 traceback is still selectable text, so nothing is lost. #}
+              <button type="button" class="copy-btn" data-copy>Copy</button>
               <pre class="pre">{{ err[key] }}</pre>
             </details>
           {% endif %}
