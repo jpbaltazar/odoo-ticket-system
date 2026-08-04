@@ -693,10 +693,23 @@ def inspect(
                 " the same person will not deduplicate across tickets"
             )
         if missing_critical:
-            console.print(
-                f"  [yellow]![/yellow] missing high-value fields: "
-                f"[bold]{', '.join(missing_critical)}[/bold]"
-            )
+            # A report filed from the home screen or a menu has no record to
+            # describe, so these being absent is correct rather than a fault.
+            # Only the record-scoped ones are ambiguous; the rest always exist.
+            record_scoped = {"model", "res_id", "view_type"}
+            absent_record = [f for f in missing_critical if f in record_scoped]
+            absent_always = [f for f in missing_critical if f not in record_scoped]
+            if absent_always:
+                console.print(
+                    f"  [yellow]![/yellow] not sent, and always available: "
+                    f"[bold]{', '.join(absent_always)}[/bold]"
+                )
+            if absent_record:
+                console.print(
+                    f"  [dim]·[/dim] no record context ({', '.join(absent_record)}) —"
+                    " expected if this was filed from a dashboard or menu rather"
+                    " than a record"
+                )
 
 
 @app.command()
