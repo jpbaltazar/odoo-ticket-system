@@ -632,6 +632,21 @@ def inspect(
             f"  [dim]{ticket.source} · {ticket.client_slug}[/dim]"
         )
 
+        # "Why did I not get a push for this?" is otherwise three lookups.
+        client = store.get_client(ticket.client_id)
+        threshold = client.notify_priority or store.settings.notify_min_priority
+        would_alert = store.should_notify(client, ticket.priority)
+        if not store.settings.notify_url:
+            verdict = "[yellow]notifications disabled (OTK_NOTIFY_URL unset here)[/yellow]"
+        elif would_alert:
+            verdict = "[green]alerts[/green]"
+        else:
+            verdict = f"[yellow]no alert — below the {threshold} threshold[/yellow]"
+        console.print(
+            f"  priority [bold]{ticket.priority}[/bold] · "
+            f"{ticket.client_slug} threshold [bold]{threshold}[/bold] → {verdict}"
+        )
+
         table = Table(show_header=True, header_style="dim")
         table.add_column("context field")
         table.add_column("value")
