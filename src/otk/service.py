@@ -18,7 +18,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import Any, Iterable, Literal, Sequence
 
-from . import auth, db, security
+from . import auth, db, notify, security
 from .config import Settings, get_settings
 from .schemas import (
     CLIENT_SETTABLE_STATUSES,
@@ -142,6 +142,8 @@ class ClientRecord:
     notes: str
     active: bool
     created_at: datetime
+    notify_priority: str | None = None
+    """Operator-set alert threshold. None means the deployment default."""
 
 
 @dataclass
@@ -331,6 +333,7 @@ class Store:
             notes=row["notes"],
             active=bool(row["active"]),
             created_at=parse_iso(row["created_at"]),
+            notify_priority=row["notify_priority"],
         )
 
     def get_client(self, client_id: str) -> ClientRecord:
@@ -353,6 +356,55 @@ class Store:
             sql += " WHERE active=1"
         sql += " ORDER BY name COLLATE NOCASE"
         return [self._client_from_row(r) for r in self.conn.execute(sql)]
+
+    def set_client_notify_priority(self, client_id: str, threshold: str | None) -> None:
+        """Set the alert threshold for one client.
+
+        Operator-only by construction: nothing in the client API reads or
+        writes this, so a client filing everything as urgent cannot decide what
+        reaches a phone.
+        """
+        if threshold is not None and threshold not in notify.THRESHOLD_VALUES:
+            raise ServiceError(
+                "invalid_threshold",
+                f"threshold must be one of {', '.join(notify.THRESHOLD_VALUES)}, or unset",
+            )
+        with self._write_lock:
+            cur = self.conn.execute(
+                "UPDATE clients SET notify_priority=? WHERE id=?", (threshold, client_id)
+            )
+        if cur.rowcount == 0:
+            raise NotFound(f"client {client_id} not found")
+
+    def should_notify(self, client: ClientRecord, priority: str) -> bool:
+        threshold = client.notify_priority or self.settings.notify_min_priority
+        return notify.meets_threshold(priority, threshold)
+
+    def build_alert(self, ticket: TicketRecord) -> notify.Alert:
+        base = self.settings.web_base_url
+        return notify.Alert(
+            ref=ticket.ref,
+            client_name=ticket.client_name,
+            priority=ticket.priority,
+            title=ticket.title,
+            reporter=ticket.reporter_name,
+            url=f"{base}/tickets/{ticket.id}" if base else "",
+        )
+
+    def notify_new_ticket(self, ticket: TicketRecord) -> bool:
+        """Alert the operator if this ticket clears the client's threshold.
+
+        Never raises: the ticket is already saved, and an unreachable phone is
+        not the filer's problem.
+        """
+        try:
+            client = self.get_client(ticket.client_id)
+            if not self.should_notify(client, ticket.priority):
+                return False
+            return notify.send(self.settings, self.build_alert(ticket))
+        except Exception:
+            notify.log.exception("notification for %s failed", ticket.ref)
+            return False
 
     def set_client_active(self, client_id: str, active: bool) -> None:
         with self._write_lock:

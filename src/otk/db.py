@@ -10,7 +10,7 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS clients (
@@ -22,6 +22,11 @@ CREATE TABLE IF NOT EXISTS clients (
     notes         TEXT NOT NULL DEFAULT '',
     active        INTEGER NOT NULL DEFAULT 1,
     ticket_seq    INTEGER NOT NULL DEFAULT 0,
+    -- Minimum ticket priority that alerts the operator, per client. Set by the
+    -- operator only: it is never read or written through the client API, so a
+    -- client marking everything urgent cannot decide what reaches a phone.
+    -- NULL means "use the deployment default".
+    notify_priority TEXT,
     created_at    TEXT NOT NULL
 );
 
@@ -208,6 +213,10 @@ def _migrate(conn: sqlite3.Connection) -> None:
     columns = {row["name"] for row in conn.execute("PRAGMA table_info(comments)")}
     if columns and "idempotency_key" not in columns:
         conn.execute("ALTER TABLE comments ADD COLUMN idempotency_key TEXT")
+
+    client_columns = {row["name"] for row in conn.execute("PRAGMA table_info(clients)")}
+    if client_columns and "notify_priority" not in client_columns:
+        conn.execute("ALTER TABLE clients ADD COLUMN notify_priority TEXT")
 
     ticket_columns = {row["name"] for row in conn.execute("PRAGMA table_info(tickets)")}
     if ticket_columns:

@@ -99,6 +99,20 @@ class Settings:
     retention_days: int = 0
     """Age past which a closed ticket's files are purged by `otk purge --auto`.
     0 disables automatic retention; manual purging still works."""
+    notify_url: str = ""
+    """ntfy topic URL, e.g. https://ntfy.example.com/otk-urgent. Empty disables
+    notifications entirely."""
+    notify_token: str = ""
+    """Bearer token for a protected ntfy topic. Strongly advised: an
+    unauthenticated topic name is guessable, and these alerts name clients."""
+    notify_min_priority: str = "high"
+    """Deployment-wide default threshold, overridden per client by the
+    operator. Never settable by a client."""
+    notify_include_title: bool = True
+    """Whether the ticket title travels in the push. It is written by someone
+    else's employee and can name a customer or a figure."""
+    web_base_url: str = ""
+    """Public base URL of the operator UI, used to make alerts tappable."""
     display_tz: str = ""
     """IANA zone the UI renders timestamps in, e.g. `Europe/Lisbon`.
 
@@ -165,6 +179,12 @@ def get_settings() -> Settings:
         rate_limit_per_minute=_env_int("OTK_RATE_LIMIT", 120),
         cors_origins=origins,
         retention_days=_env_int("OTK_RETENTION_DAYS", 0),
+        notify_url=os.environ.get("OTK_NOTIFY_URL", "").strip(),
+        notify_token=os.environ.get("OTK_NOTIFY_TOKEN", "").strip(),
+        notify_min_priority=os.environ.get("OTK_NOTIFY_MIN_PRIORITY", "high").strip().lower(),
+        notify_include_title=os.environ.get("OTK_NOTIFY_INCLUDE_TITLE", "1").strip()
+        not in ("0", "false", "no"),
+        web_base_url=os.environ.get("OTK_WEB_BASE_URL", "").strip().rstrip("/"),
         display_tz=os.environ.get("OTK_TZ", "").strip(),
     )
 

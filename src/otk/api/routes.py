@@ -15,7 +15,7 @@ import time
 from datetime import datetime
 from typing import Annotated, Any, Callable
 
-from fastapi import APIRouter, Depends, Query, Request, Response
+from fastapi import APIRouter, BackgroundTasks, Depends, Query, Request, Response
 from pydantic import ValidationError
 from starlette.concurrency import run_in_threadpool
 
@@ -294,6 +294,7 @@ async def _parse_ticket_request(
 )
 async def create_ticket(
     request: Request,
+    background: BackgroundTasks,
     principal: Principal = Depends(get_principal),
     store: Store = Depends(get_store),
 ) -> TicketOut:
@@ -321,6 +322,9 @@ async def create_ticket(
         files=files,
         idempotency_key=idempotency_key,
     )
+    # After the response, so a slow or unreachable notification endpoint never
+    # delays — or fails — the filing of a ticket.
+    background.add_task(store.notify_new_ticket, ticket)
     return ticket_out(ticket)
 
 

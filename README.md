@@ -74,6 +74,26 @@ that shows exactly what would go and how much it frees.
 Set `OTK_RETENTION_DAYS` and run `otk purge --auto --yes` from cron for
 unattended retention. It is 0 (off) by default.
 
+## Alerts
+
+Push to your phone when a ticket arrives that should not wait. One HTTP POST to
+[ntfy](https://ntfy.sh); no other channel and no dependency.
+
+```bash
+otk client notify acme urgent    # this client only alerts on urgent
+otk client notify globex high    # this one on high and above
+otk client notify noisy off      # mute entirely
+otk notify-test                  # check the setup reaches your phone
+```
+
+**Clients choose a ticket's priority; you choose which priorities are worth a
+push.** The threshold lives on the client record and is settable only from here
+— nothing in the client API can read or change it, so a client marking
+everything urgent does not decide what wakes you.
+
+Delivery happens after the response and can never fail a ticket: an unreachable
+phone is not the filer's problem.
+
 ## Configuration
 
 All optional; defaults in [`src/otk/config.py`](src/otk/config.py).
@@ -87,9 +107,14 @@ All optional; defaults in [`src/otk/config.py`](src/otk/config.py).
 | `OTK_MAX_FILE_MB` | `10` | per attachment |
 | `OTK_MAX_TICKET_MB` | `25` | all attachments on one ticket |
 | `OTK_MAX_BODY_MB` | `36` | whole request body |
-| `OTK_RATE_LIMIT` | `60` | requests/min per credential |
+| `OTK_RATE_LIMIT` | `120` | requests/min per credential |
 | `OTK_RETENTION_DAYS` | `0` | age for `purge --auto`; 0 = off |
 | `OTK_TZ` | server's zone | IANA zone the web UI renders times in |
+| `OTK_NOTIFY_URL` | — | ntfy topic for urgent-ticket alerts; empty disables |
+| `OTK_NOTIFY_TOKEN` | — | bearer token for a protected ntfy topic |
+| `OTK_NOTIFY_MIN_PRIORITY` | `high` | default alert threshold; per-client override |
+| `OTK_NOTIFY_INCLUDE_TITLE` | `1` | `0` pushes only the ref, not the title |
+| `OTK_WEB_BASE_URL` | — | makes alerts link to the ticket |
 | `OTK_CORS_ORIGINS` | `*` | comma-separated, for browser-direct uploads |
 | `OTK_OPERATOR` | `operator` | name on TUI replies |
 

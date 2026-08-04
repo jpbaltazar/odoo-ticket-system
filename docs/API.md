@@ -727,7 +727,7 @@ Multipart-specific: a `payload` part that isn't parseable JSON is
 | Per ticket, all files | 25 MB | `OTK_MAX_TICKET_MB` |
 | **Whole request body** | **36 MB** | `OTK_MAX_BODY_MB` |
 | Files per request | 10 | `OTK_MAX_FILES` |
-| Requests per key | 60/min (token bucket) | `OTK_RATE_LIMIT` |
+| Requests per key | 120/min (token bucket) | `OTK_RATE_LIMIT` |
 | Upload token TTL | 600 s | `OTK_UPLOAD_TOKEN_TTL` |
 | Comments embedded in a ticket fetch | 50 newest | — |
 

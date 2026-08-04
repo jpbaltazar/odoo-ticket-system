@@ -98,7 +98,7 @@ def client_list() -> None:
     """List clients with their open ticket counts."""
     store = _store()
     table = Table(title="Clients")
-    for column in ("slug", "name", "contact", "tickets", "open", "active"):
+    for column in ("slug", "name", "contact", "tickets", "open", "alerts", "active"):
         table.add_column(column)
     for client in store.list_clients():
         counts = store.counts_by_status(client.id)
@@ -110,9 +110,75 @@ def client_list() -> None:
             client.contact_email or "-",
             str(total),
             str(open_count),
+            client.notify_priority or f"[dim]{store.settings.notify_min_priority}*[/dim]",
             "yes" if client.active else "[red]no[/red]",
         )
     console.print(table)
+
+
+@client_app.command("notify")
+def client_notify(
+    slug: Annotated[str, typer.Argument(help="Client slug")],
+    threshold: Annotated[
+        str,
+        typer.Argument(help="Alert at this priority or above: low|normal|high|urgent|off"),
+    ],
+) -> None:
+    """Set the alert threshold for one client.
+
+    Yours to set, not theirs: clients choose a ticket's priority, you choose
+    which of those priorities is worth a push. Nothing in the client API can
+    read or change this.
+    """
+    from .notify import THRESHOLD_VALUES
+
+    store = _store(announce=True)
+    threshold = threshold.strip().lower()
+    if threshold not in THRESHOLD_VALUES:
+        console.print(
+            f"[red]error[/red] threshold must be one of: {', '.join(THRESHOLD_VALUES)}"
+        )
+        raise typer.Exit(1)
+    try:
+        client = store.get_client_by_slug(slug)
+        store.set_client_notify_priority(client.id, threshold)
+    except ServiceError as exc:
+        _fail(exc)
+    if threshold == "off":
+        console.print(f"[yellow]muted[/yellow] {client.name} — no alerts")
+    else:
+        console.print(f"[green]set[/green] {client.name} alerts at {threshold} and above")
+
+
+@app.command("notify-test")
+def notify_test() -> None:
+    """Send a test push, to check the ntfy setup end to end."""
+    from .notify import Alert, send
+
+    store = _store()
+    settings = store.settings
+    if not settings.notify_url:
+        console.print(
+            "[yellow]OTK_NOTIFY_URL is not set[/yellow] — notifications are disabled."
+        )
+        raise typer.Exit(1)
+    console.print(f"[dim]posting to {settings.notify_url}[/dim]")
+    ok = send(
+        settings,
+        Alert(
+            ref="TEST-0001",
+            client_name="Test Client",
+            priority="urgent",
+            title="This is a test alert from otk",
+            reporter="otk notify-test",
+            url=f"{settings.web_base_url}/" if settings.web_base_url else "",
+        ),
+    )
+    if ok:
+        console.print("[green]sent[/green] — check your phone")
+    else:
+        console.print("[red]failed[/red] — see the log line above for why")
+        raise typer.Exit(1)
 
 
 @client_app.command("disable")
