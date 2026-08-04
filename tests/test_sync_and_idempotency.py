@@ -699,3 +699,67 @@ def test_conditional_responses_are_marked_private(api, store, token):
         # The 304 must carry them too, or a cache can promote a stale entry.
         assert "private" in cached.headers["cache-control"]
         assert cached.headers["vary"] == "Authorization"
+
+
+def test_status_changes_propagate_through_the_sync_feed(api, store, token):
+    """There is no separate channel for state: an operator changing status
+    bumps updated_at, which moves the ticket ahead of the client's cursor with
+    the new value already on the list item."""
+    ticket_id = _create(api, token)["id"]
+    page = api.get(
+        "/api/v1/tickets?updated_since=1970-01-01T00:00:00Z", headers=auth(token)
+    ).json()
+    assert [i["status"] for i in page["items"]] == ["new"]
+    cursor = page["next_cursor"]
+
+    store.update_ticket(
+        ticket_id, {"status": "waiting_client", "priority": "urgent"}, actor="operator"
+    )
+
+    after = api.get(f"/api/v1/tickets?cursor={cursor}", headers=auth(token)).json()
+    assert [i["id"] for i in after["items"]] == [ticket_id], "the change must resurface"
+    assert after["items"][0]["status"] == "waiting_client"
+    assert after["items"][0]["priority"] == "urgent"
+    # No extra request needed — the state is on the list item itself.
+    assert after["items"][0]["comments"] is None
+
+
+def test_resolving_a_ticket_reaches_the_client(api, store, token):
+    ticket_id = _create(api, token)["id"]
+    marker = api.get("/api/v1/whoami", headers=auth(token)).json()["server_time"]
+    store.update_ticket(ticket_id, {"status": "resolved"}, actor="operator")
+
+    items = api.get(f"/api/v1/tickets?updated_since={marker}", headers=auth(token)).json()["items"]
+    assert [(i["status"], bool(i["resolved_at"])) for i in items] == [("resolved", True)]
+
+
+def test_status_changes_propagate_through_the_sync_feed(api, store, token):
+    """There is no separate channel for state: an operator changing status
+    bumps updated_at, which moves the ticket ahead of the client's cursor with
+    the new value already on the list item."""
+    ticket_id = _create(api, token)["id"]
+    page = api.get(
+        "/api/v1/tickets?updated_since=1970-01-01T00:00:00Z", headers=auth(token)
+    ).json()
+    assert [i["status"] for i in page["items"]] == ["new"]
+    cursor = page["next_cursor"]
+
+    store.update_ticket(
+        ticket_id, {"status": "waiting_client", "priority": "urgent"}, actor="operator"
+    )
+
+    after = api.get(f"/api/v1/tickets?cursor={cursor}", headers=auth(token)).json()
+    assert [i["id"] for i in after["items"]] == [ticket_id], "the change must resurface"
+    assert after["items"][0]["status"] == "waiting_client"
+    assert after["items"][0]["priority"] == "urgent"
+    # No extra request needed — the state is on the list item itself.
+    assert after["items"][0]["comments"] is None
+
+
+def test_resolving_a_ticket_reaches_the_client(api, store, token):
+    ticket_id = _create(api, token)["id"]
+    marker = api.get("/api/v1/whoami", headers=auth(token)).json()["server_time"]
+    store.update_ticket(ticket_id, {"status": "resolved"}, actor="operator")
+
+    items = api.get(f"/api/v1/tickets?updated_since={marker}", headers=auth(token)).json()["items"]
+    assert [(i["status"], bool(i["resolved_at"])) for i in items] == [("resolved", True)]
