@@ -176,10 +176,13 @@
         {% for label, key in [('Traceback', 'traceback'), ('Server traceback', 'server_traceback')] %}
           {% if err.get(key) %}
             <details class="trace">
-              <summary>{{ label }}</summary>
-              {# The button is only wired up if app.js loads; without it the
-                 traceback is still selectable text, so nothing is lost. #}
-              <button type="button" class="copy-btn" data-copy>Copy</button>
+              {# The button lives in the summary so it is reachable without
+                 expanding first — usually you want the text, not to read it
+                 here. app.js stops the click from toggling the disclosure. #}
+              <summary>
+                <span>{{ label }}</span>
+                <button type="button" class="copy-btn" data-copy>Copy</button>
+              </summary>
               <pre class="pre">{{ err[key] }}</pre>
             </details>
           {% endif %}

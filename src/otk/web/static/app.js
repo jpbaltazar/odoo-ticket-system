@@ -39,6 +39,9 @@
   document.addEventListener("click", function (event) {
     var button = event.target.closest("[data-copy]");
     if (!button) return;
+    // The button sits inside <summary>, so without this the copy also toggles
+    // the disclosure open or shut.
+    event.preventDefault();
 
     var source = document.querySelector(button.getAttribute("data-copy") || "") ||
       (button.closest("details") || document).querySelector("pre");
