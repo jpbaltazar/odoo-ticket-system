@@ -14,51 +14,126 @@
   // opens full resolution over the ticket. The anchor still points at the file,
   // so without this script the click just opens it.
   (function () {
+    // Zoom steps, as a share of the viewport width. `null` is fit-to-screen.
+    // Expressed against the viewport rather than the image's natural size so
+    // a step always changes what you see — a 900px screenshot and a 3840px one
+    // both start out fitted, and 2x fitted is 2x either way.
+    var STEPS = [null, 2, 4];
     var overlay = null;
+    var image = null;
+    var step = 0;
+    var drag = null;
 
     function close() {
       if (!overlay) return;
       overlay.remove();
       overlay = null;
+      image = null;
+      drag = null;
       document.removeEventListener("keydown", onKey);
+    }
+
+    function applyStep() {
+      // Classes rather than inline styles: the CSP has no 'unsafe-inline'.
+      overlay.classList.toggle("is-zoomed", STEPS[step] === 2);
+      overlay.classList.toggle("is-zoomed-max", STEPS[step] === 4);
+    }
+
+    function setStep(next, anchor) {
+      // Keep whatever was under the cursor under the cursor. Without this,
+      // zooming always lands you back in the middle of the image.
+      var rect = image.getBoundingClientRect();
+      var fx = rect.width ? ((anchor ? anchor.clientX : innerWidth / 2) - rect.left) / rect.width : .5;
+      var fy = rect.height ? ((anchor ? anchor.clientY : innerHeight / 2) - rect.top) / rect.height : .5;
+
+      step = (next + STEPS.length) % STEPS.length;
+      applyStep();
+
+      var grown = image.getBoundingClientRect();
+      overlay.scrollLeft += grown.width * fx - (rect.width * fx + (rect.left - grown.left));
+      overlay.scrollTop += grown.height * fy - (rect.height * fy + (rect.top - grown.top));
     }
 
     function onKey(event) {
       if (event.key === "Escape") close();
+      else if (event.key === "+" || event.key === "=") setStep(step + 1, null);
+      else if (event.key === "-") setStep(step - 1, null);
     }
 
     function open(href, caption) {
       close();
+      step = 0;
       overlay = document.createElement("div");
       overlay.className = "lightbox";
       overlay.setAttribute("role", "dialog");
       overlay.setAttribute("aria-label", caption || "Screenshot");
 
-      var image = document.createElement("img");
+      var stage = document.createElement("div");
+      stage.className = "lightbox-stage";
+      image = document.createElement("img");
       image.src = href;
       image.alt = caption || "";
-      overlay.appendChild(image);
+      image.draggable = false;   // else the browser starts an image drag instead
+      stage.appendChild(image);
+      overlay.appendChild(stage);
 
       var button = document.createElement("button");
       button.type = "button";
       button.className = "lightbox-close";
       button.textContent = "Close";
+      button.addEventListener("click", close);
       overlay.appendChild(button);
 
-      if (caption) {
-        var label = document.createElement("p");
-        label.className = "lightbox-caption";
-        label.textContent = caption + " — click anywhere or press Esc to close";
-        overlay.appendChild(label);
-      }
+      var label = document.createElement("p");
+      label.className = "lightbox-caption";
+      label.textContent = (caption ? caption + " — " : "") +
+        "click the image to zoom, drag to pan, Esc to close";
+      overlay.appendChild(label);
 
-      // Clicking the image itself should not close it; the backdrop should.
-      image.addEventListener("click", function (event) { event.stopPropagation(); });
+      // Click the image to step through the zoom levels; click the backdrop
+      // around it to close. A drag that ends on the image is a pan, not a
+      // click, so it must not also change the zoom.
+      image.addEventListener("click", function (event) {
+        event.stopPropagation();
+        if (drag && drag.moved) return;
+        setStep(step + 1, event);
+      });
+      image.addEventListener("mousedown", function (event) {
+        if (event.button !== 0) return;
+        event.preventDefault();
+        drag = {x: event.clientX, y: event.clientY,
+                left: overlay.scrollLeft, top: overlay.scrollTop, moved: false};
+        overlay.classList.add("is-panning");
+      });
+      overlay.addEventListener("wheel", function (event) {
+        if (!event.ctrlKey) return;   // plain wheel still scrolls a zoomed image
+        event.preventDefault();
+        setStep(step + (event.deltaY < 0 ? 1 : -1), event);
+      }, {passive: false});
       overlay.addEventListener("click", close);
+
       document.body.appendChild(overlay);
       button.focus();
       document.addEventListener("keydown", onKey);
     }
+
+    document.addEventListener("mousemove", function (event) {
+      if (!drag) return;
+      var dx = event.clientX - drag.x;
+      var dy = event.clientY - drag.y;
+      if (!drag.moved && Math.abs(dx) + Math.abs(dy) < 4) return;   // a shaky click
+      drag.moved = true;
+      overlay.scrollLeft = drag.left - dx;
+      overlay.scrollTop = drag.top - dy;
+    });
+
+    document.addEventListener("mouseup", function () {
+      if (!drag) return;
+      overlay.classList.remove("is-panning");
+      // Cleared after the click event that follows this mouseup has been seen.
+      var finished = drag;
+      setTimeout(function () { if (drag === finished) drag = null; }, 0);
+    });
 
     document.addEventListener("click", function (event) {
       var link = event.target.closest("a[data-lightbox]");

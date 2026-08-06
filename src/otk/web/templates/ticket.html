@@ -240,12 +240,14 @@
         <span class="field-label">Assignee</span>
         <input type="text" name="assignee" value="{{ ticket.assignee or '' }}" placeholder="unassigned">
       </label>
-      <button class="button button-primary" type="submit">Save</button>
+      <div class="controls-actions">
+        <button class="button button-primary" type="submit">Save</button>
+      </div>
     </form>
 
     <form class="inline-form" method="post" action="/tickets/{{ ticket.id }}/unread">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-      <button class="button button-quiet" type="submit">Mark unread and return to the inbox</button>
+      <button class="button-quiet link-button" type="submit">Mark unread and return to the inbox</button>
     </form>
   </section>
 
@@ -307,14 +309,17 @@
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       <label class="field">
         <span class="field-label">Reply</span>
-        <textarea name="body" rows="5" placeholder="Written as {{ operator.display_name if operator else 'you' }}"></textarea>
+        <textarea name="body" rows="3" placeholder="Written as {{ operator.display_name if operator else 'you' }}"></textarea>
       </label>
-      <label class="checkline">
-        <input type="checkbox" name="internal" value="1">
-        <span><b>Internal note</b> — kept between operators. Leave unticked and
-        <b>{{ ticket.reporter_name }}</b> will see this reply.</span>
-      </label>
-      <button class="button button-primary" type="submit">Post reply</button>
+      {# The checkbox decides who sees the reply, so it belongs beside the
+         button that sends it rather than a line above it. #}
+      <div class="reply-actions">
+        <label class="checkline" title="Kept between operators. Unticked, {{ ticket.reporter_name }} sees this reply.">
+          <input type="checkbox" name="internal" value="1">
+          <span><b>Internal note</b></span>
+        </label>
+        <button class="button button-primary" type="submit">Post reply</button>
+      </div>
     </form>
       </div>
       </section>

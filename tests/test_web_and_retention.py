@@ -1116,6 +1116,33 @@ def test_clicking_a_screenshot_zooms_it_in_place(signed_in, store):
     assert 'Escape' in js
 
 
+def test_the_zoomed_screenshot_can_be_zoomed_further_by_clicking_it(signed_in, store):
+    """Fit-to-screen is where you start, not the only size on offer."""
+    js = signed_in.get("/static/app.js").text
+    assert "setStep" in js and "is-zoomed-max" in js
+    css = signed_in.get("/static/app.css").text
+    assert ".lightbox.is-zoomed img" in css
+    assert ".lightbox.is-zoomed-max img" in css
+    # Scrollable, or there is no way to reach the parts now off-screen.
+    rule = css[css.index(".lightbox {"):]
+    assert "overflow: auto" in rule[: rule.index("}")]
+
+
+def test_the_reply_button_and_internal_note_share_a_row(signed_in, store):
+    """The composer is pinned under the thread, so every row it takes is a row
+    of conversation you cannot see."""
+    ticket_id = _make_ticket(store)
+    html = signed_in.get(f"/tickets/{ticket_id}").text
+    actions = html[html.index('class="reply-actions"'):]
+    actions = actions[: actions.index("</div>")]
+    assert 'name="internal"' in actions
+    assert ">Post reply<" in actions
+
+    css = signed_in.get("/static/app.css").text
+    rule = css[css.index(".reply-actions {"):]
+    assert "display: flex" in rule[: rule.index("}")]
+
+
 def test_a_board_column_does_not_widen_to_fill_the_page(signed_in, store):
     """One populated column among three empty ones absorbed all the width they
     gave up, so a single ticket rendered as a card the width of the window."""
