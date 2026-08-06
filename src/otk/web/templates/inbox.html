@@ -73,7 +73,13 @@
                 </a>
                 <p class="card-meta">
                   <span class="ref">{{ t.ref }}</span>
-                  <span class="pill status-{{ t.status }}">{{ t.status.replace('_', ' ') }}</span>
+                  {# On the board a resolved ticket is only here because the
+                     client came back, so say that rather than "resolved". #}
+                  {% if t.status == 'resolved' %}
+                    <span class="pill pill-reopened">client replied</span>
+                  {% else %}
+                    <span class="pill status-{{ t.status }}">{{ t.status.replace('_', ' ') }}</span>
+                  {% endif %}
                 </p>
                 <p class="card-meta muted">
                   <span>{{ t.client_name }}</span>

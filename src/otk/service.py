@@ -116,6 +116,10 @@ class TicketFilters:
     updated_since: datetime | None = None
     reporter_email: str | None = None
     unread_only: bool = False
+    hide_quiet_resolved: bool = False
+    """Drop resolved tickets that the client has not replied to since. A
+    resolved ticket is finished work; the only reason to look at one again is
+    that the person who reported it came back."""
     sort: str = "recent"
     """`recent` (newest first) or `priority` (most urgent first, newest within
     a level). Priority order does not paginate — see list_tickets."""
@@ -1015,6 +1019,18 @@ class Store:
             params.extend(filters.priorities)
         if filters.unread_only:
             sql += " AND t.unread=1"
+        if filters.hide_quiet_resolved:
+            # Keep a resolved ticket only when a client comment lands after the
+            # moment it was resolved. Comparing against resolved_at rather than
+            # a read flag means an operator reopening their own view does not
+            # count, and the client's own words are what bring it back.
+            sql += (
+                " AND (t.status != 'resolved' OR EXISTS ("
+                "   SELECT 1 FROM comments c WHERE c.ticket_id = t.id"
+                "     AND c.author_type = 'client'"
+                "     AND c.created_at > COALESCE(t.resolved_at, '')"
+                " ))"
+            )
         if filters.reporter_email:
             sql += " AND lower(t.reporter_email)=?"
             params.append(filters.reporter_email.lower())

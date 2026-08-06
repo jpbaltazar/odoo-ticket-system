@@ -842,20 +842,6 @@ def test_inbox_groups_tickets_into_priority_columns(signed_in, store):
         assert set(links) == set(made.get(name, [])), f"wrong tickets in {name}"
 
 
-def test_board_shows_everything_except_closed(signed_in, store):
-    resolved = _make_ticket(store)
-    store.update_ticket(resolved, {"status": "resolved"}, actor="op")
-    waiting = _make_ticket(store)
-    store.update_ticket(waiting, {"status": "waiting_client"}, actor="op")
-    closed = _make_ticket(store)
-    store.update_ticket(closed, {"status": "closed"}, actor="op")
-
-    html = signed_in.get("/").text
-    assert f'/tickets/{resolved}"' in html, "resolved stays visible until it ages away"
-    assert f'/tickets/{waiting}"' in html
-    assert f'/tickets/{closed}"' not in html
-    assert f'/tickets/{closed}"' in signed_in.get("/?view=closed").text
-
 
 def test_card_keeps_the_image_and_the_text_in_separate_blocks(signed_in, store):
     """Nesting them in one anchor made the text wrap around the thumbnail."""
@@ -936,10 +922,146 @@ def test_an_all_closed_system_says_so_rather_than_showing_empty_columns(signed_i
     assert 'href="/?view=closed"' in html
 
 
-def test_resolved_tickets_still_show_on_the_board(signed_in, store):
-    """They are live until autoclose ages them out."""
+
+# ------------------------------------------------- resolved is finished work
+
+
+def _client_reply(store, ticket_id, body="still broken"):
+    store.add_comment(ticket_id, body=body, author_type="client", author_name="Marta")
+
+
+def test_a_quiet_resolved_ticket_is_off_the_board(signed_in, store):
+    """Finished work is not something to look at."""
     ticket_id = _make_ticket(store)
     store.update_ticket(ticket_id, {"status": "resolved"}, actor="op")
+
+    assert f'/tickets/{ticket_id}"' not in signed_in.get("/").text
+    # Still reachable — hidden, not gone.
+    assert f'/tickets/{ticket_id}"' in signed_in.get("/?view=all").text
+    assert f'/tickets/{ticket_id}"' in signed_in.get("/?view=closed").text
+
+
+def test_a_client_reply_brings_a_resolved_ticket_back(signed_in, store):
+    ticket_id = _make_ticket(store)
+    store.update_ticket(ticket_id, {"status": "resolved"}, actor="op")
+    assert f'/tickets/{ticket_id}"' not in signed_in.get("/").text
+
+    _client_reply(store, ticket_id)
+
     html = signed_in.get("/").text
     assert f'/tickets/{ticket_id}"' in html
-    assert "empty-state" not in html
+    # Labelled for why it is back, rather than just "resolved".
+    assert "client replied" in html
+
+
+def test_a_reply_from_before_the_resolution_does_not_bring_it_back(signed_in, store):
+    """The conversation that led to resolving it is not new activity."""
+    ticket_id = _make_ticket(store)
+    _client_reply(store, ticket_id, "here is the screenshot you asked for")
+    store.update_ticket(ticket_id, {"status": "resolved"}, actor="op")
+
+    assert f'/tickets/{ticket_id}"' not in signed_in.get("/").text
+
+
+def test_an_operator_reply_does_not_bring_it_back(signed_in, store):
+    """Only the person who reported it coming back counts."""
+    ticket_id = _make_ticket(store)
+    store.update_ticket(ticket_id, {"status": "resolved"}, actor="op")
+    store.add_comment(
+        ticket_id, body="for the record", author_type="agent", author_name="José"
+    )
+    assert f'/tickets/{ticket_id}"' not in signed_in.get("/").text
+
+
+def test_an_internal_note_does_not_bring_it_back(signed_in, store):
+    ticket_id = _make_ticket(store)
+    store.update_ticket(ticket_id, {"status": "resolved"}, actor="op")
+    store.add_comment(
+        ticket_id,
+        body="worth revisiting one day",
+        author_type="agent",
+        author_name="José",
+        visibility="internal",
+    )
+    assert f'/tickets/{ticket_id}"' not in signed_in.get("/").text
+
+
+def test_non_resolved_statuses_are_unaffected(signed_in, store):
+    """The filter must only touch resolved tickets."""
+    ids = {}
+    for status in ("new", "open", "waiting_client", "waiting_third_party"):
+        ticket_id = _make_ticket(store)
+        store.update_ticket(ticket_id, {"status": status}, actor="op")
+        ids[status] = ticket_id
+
+    html = signed_in.get("/").text
+    for status, ticket_id in ids.items():
+        assert f'/tickets/{ticket_id}"' in html, f"{status} should still be on the board"
+
+
+def test_a_returning_client_does_not_get_auto_closed(store):
+    """The reply resets the clock, so it waits for an answer rather than
+    ageing out while the client is waiting."""
+    ticket_id = _make_ticket(store)
+    store.update_ticket(ticket_id, {"status": "resolved"}, actor="op")
+    _age(store, ticket_id, days=10)
+    _client_reply(store, ticket_id)
+
+    assert store.autoclose_resolved(days=5) == []
+    assert store.get_ticket(ticket_id).status == "resolved"
+
+
+# ------------------------------------------------- ticket page, two columns
+
+
+def test_ticket_page_puts_controls_and_conversation_beside_the_report(signed_in, store):
+    """The report reads on the left; what you do about it lives on the right."""
+    import re
+
+    ticket_id = _make_ticket(store)
+    store.add_comment(ticket_id, body="hello", author_type="client", author_name="Marta")
+    html = signed_in.get(f"/tickets/{ticket_id}").text
+
+    grid = re.search(r'<div class="ticket-grid">(.*)</article>', html, re.S).group(1)
+    left = re.search(r'<div class="ticket-col ticket-col-left">(.*?)\n    </div>', grid, re.S).group(1)
+    right = grid[grid.index('ticket-col-right'):]
+
+    # The report is on the left.
+    assert "ticket-head" in left and "Odoo context" in left
+    assert "Controls" not in left and 'id="conversation"' not in left
+
+    # Controls, thread and composer are on the right, in that order.
+    assert right.index("ticket-controls") < right.index("ticket-thread") < right.index(
+        "ticket-composer"
+    )
+    assert "Controls" in right and 'id="conversation"' in right
+    assert 'action="/tickets/' in right
+
+
+def test_the_two_columns_scroll_independently(signed_in, store):
+    """Each side owns its scrolling, and the controls sit outside the thread's
+    scroll region so they cannot scroll away."""
+    css = (
+        signed_in.get("/static/app.css").text
+        if signed_in.get("/static/app.css").status_code == 200
+        else ""
+    )
+    assert ".ticket-col-left" in css and "overflow-y: auto" in css
+    # The thread scrolls; the controls and composer do not.
+    thread = css[css.index(".ticket-thread {"):]
+    thread = thread[: thread.index("}")]
+    assert "overflow-y: auto" in thread
+    # Without min-height:0 a flex child will not shrink below its content and
+    # the inner scroll silently never engages.
+    assert "min-height: 0" in thread
+
+    controls = css[css.index(".ticket-controls {"):]
+    assert "flex: 0 0 auto" in controls[: controls.index("}")]
+
+
+def test_the_ticket_page_is_the_only_full_height_layout(signed_in, store):
+    """Scoped by a body class so every other page keeps normal scrolling."""
+    ticket_id = _make_ticket(store)
+    assert 'class="page-ticket"' in signed_in.get(f"/tickets/{ticket_id}").text
+    assert 'class="page-ticket"' not in signed_in.get("/").text
+    assert "page-ticket" not in signed_in.get("/storage").text

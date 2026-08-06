@@ -835,3 +835,74 @@ body.centred {
   color: var(--muted); font-size: 12px; text-align: center;
   padding: 12px 2px; border: 1px dashed var(--border); border-radius: 8px;
 }
+
+/* A resolved ticket on the board is there because the client came back. */
+.pill-reopened {
+  background: #f5a524;
+  color: #10131a;
+  font-weight: 600;
+}
+
+/* -------------------------------------------------- ticket, two columns */
+
+/* Only this page becomes a fixed-height app layout. Everywhere else keeps
+   ordinary document scrolling. 53px is the sticky topbar, as the sidebar
+   already assumes. */
+.page-ticket .main {
+  max-width: none;
+  padding-bottom: 18px;
+  height: calc(100vh - 53px);
+  overflow: hidden;
+}
+.page-ticket .ticket { height: 100%; }
+
+.ticket-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 460px);
+  gap: 16px;
+  height: 100%;
+  min-height: 0;
+}
+
+/* The report side scrolls on its own, so reading a long traceback never
+   moves the controls or the thread. */
+.ticket-col-left {
+  min-width: 0;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+/* Controls pinned at the top, composer pinned at the bottom, thread taking
+   whatever is left. min-height: 0 on the middle child is what actually lets
+   it scroll — without it a flex item refuses to shrink below its content. */
+.ticket-col-right {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  gap: 12px;
+}
+.ticket-controls { flex: 0 0 auto; }
+.ticket-thread {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
+.ticket-composer { flex: 0 0 auto; }
+
+/* The panels inside the right column already have their own margins; drop the
+   doubled spacing so the columns line up at the top. */
+.ticket-col > .panel:first-child,
+.ticket-controls > .panel,
+.ticket-composer > .panel { margin-top: 0; }
+.ticket-composer .reply { margin: 0; }
+
+/* Narrow: back to one column and ordinary page scrolling. A 400px-tall inner
+   scroll region on a phone is worse than no scroll region at all. */
+@media (max-width: 1000px) {
+  .page-ticket .main { height: auto; overflow: visible; padding-bottom: 60px; }
+  .page-ticket .ticket { height: auto; }
+  .ticket-grid { display: block; height: auto; }
+  .ticket-col-left, .ticket-thread { overflow: visible; }
+  .ticket-col-right { display: block; }
+}

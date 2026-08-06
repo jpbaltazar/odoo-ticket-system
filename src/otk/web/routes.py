@@ -138,8 +138,10 @@ def inbox(
             unread_only=view == "unread",
             include_internal=True,
             sort="priority" if board else "recent",
-            # The board shows everything still live — only `closed` is left
-            # out, so a resolved ticket stays visible until it ages away.
+            # A resolved ticket is finished work and only clutters the board;
+            # it comes back only if the client has replied since.
+            hide_quiet_resolved=board,
+            # Everything still live. `closed` is left out entirely.
             statuses=(
                 [s for s in STATUSES if s != "closed"]
                 if board

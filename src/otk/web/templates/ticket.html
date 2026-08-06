@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% block title %}{{ ticket.ref }} · {{ ticket.title }}{% endblock %}
+{% block body_class %}page-ticket{% endblock %}
 
 {% block content %}
 {% set ctx = ticket.context or {} %}
@@ -11,6 +12,12 @@
                   'user_tz', 'error', 'browser', 'installed_modules'] %}
 
 <article class="ticket">
+
+  {# Two independently scrolling columns: the report on the left, what you do
+     about it on the right. The controls are pinned above the thread and the
+     composer below it, so neither scrolls away while you read. #}
+  <div class="ticket-grid">
+    <div class="ticket-col ticket-col-left">
 
   <!-- 1. header -->
   <header class="ticket-head">
@@ -203,6 +210,10 @@
     {% endif %}
   </section>
 
+    </div>
+
+    <div class="ticket-col ticket-col-right">
+      <div class="ticket-controls">
   <!-- 6. controls -->
   <section class="panel">
     <h2 class="panel-title">Controls</h2>
@@ -237,6 +248,9 @@
     </form>
   </section>
 
+      </div>
+
+      <div class="ticket-thread">
   <!-- 7. conversation -->
   <section class="panel" id="conversation">
     <h2 class="panel-title">
@@ -284,6 +298,9 @@
       {% endfor %}
     </ol>
 
+      </div>
+
+      <div class="ticket-composer">
     <!-- 8. reply -->
     <form class="reply" method="post" action="/tickets/{{ ticket.id }}/reply">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
@@ -298,6 +315,9 @@
       </label>
       <button class="button button-primary" type="submit">Post reply</button>
     </form>
-  </section>
+      </div>
+      </section>
+    </div>
+  </div>
 </article>
 {% endblock %}

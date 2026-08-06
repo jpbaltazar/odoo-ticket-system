@@ -6,7 +6,7 @@
 <title>{% block title %}Odoo Tickets{% endblock %}</title>
 <link rel="stylesheet" href="/static/app.css?v={{ asset_v }}">
 </head>
-<body>
+<body class="{% block body_class %}{% endblock %}">
 <a class="skip-link" href="#main">Skip to content</a>
 
 <header class="topbar">
