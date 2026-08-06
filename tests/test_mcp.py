@@ -347,3 +347,35 @@ async def test_notes_fall_back_to_the_generic_signature_over_stdio(seeded):
     assert store_obj.get_ticket(ticket.id, include_internal=True).comments[-1].author_name == (
         TRIAGE_AUTHOR
     )
+
+
+# ------------------------------------------------------- DNS-rebinding guard
+
+
+def test_public_hostname_is_allowed_through_the_host_check(settings):
+    """Behind a proxy the Host is the public name, not 127.0.0.1. Without it
+    in the allowlist every proxied request is refused `421 Invalid Host
+    header`, whatever the token says."""
+    from dataclasses import replace
+
+    from otk.mcp_server import _transport_security
+
+    configured = replace(settings, mcp_url="https://tickets.admin.abansec.com/mcp")
+    security = _transport_security(configured)
+
+    assert security.enable_dns_rebinding_protection is True
+    assert "tickets.admin.abansec.com" in security.allowed_hosts
+    # A proxy may or may not pass the port through.
+    assert "tickets.admin.abansec.com:443" in security.allowed_hosts
+    assert security.allowed_origins == ["https://tickets.admin.abansec.com"]
+
+
+def test_only_the_configured_host_is_allowed(settings):
+    """Narrowed to this deployment rather than switched off."""
+    from dataclasses import replace
+
+    from otk.mcp_server import _transport_security
+
+    security = _transport_security(replace(settings, mcp_url="https://mine.example.com/mcp"))
+    assert not any("evil" in h for h in security.allowed_hosts)
+    assert all(h.startswith("mine.example.com") for h in security.allowed_hosts)

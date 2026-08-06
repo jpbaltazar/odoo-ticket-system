@@ -22,12 +22,14 @@ from __future__ import annotations
 
 import json
 from typing import Any
+from urllib.parse import urlparse
 
 from mcp.server import MCPServer
 from mcp.server.auth.middleware.auth_context import get_access_token
 from mcp.server.auth.provider import AccessToken
 from mcp.server.auth.settings import AuthSettings
 from mcp.server.mcpserver import Image
+from mcp.server.transport_security import TransportSecuritySettings
 from mcp.types import ToolAnnotations
 
 from .config import Settings, get_settings
@@ -350,6 +352,29 @@ def run() -> None:
     build_server().run(transport="stdio")
 
 
+def _transport_security(settings: Settings) -> TransportSecuritySettings:
+    """Allow the public hostname through the DNS-rebinding check.
+
+    The SDK validates Host and Origin to stop a browser on a victim's machine
+    being tricked into driving a locally bound MCP server. Behind a reverse
+    proxy the Host is the public name, which is not in the default allowlist —
+    so without this every proxied request is refused with
+    `421 Invalid Host header`, whatever the token says.
+
+    Only the configured hostname is added, so the protection is narrowed to
+    this deployment rather than switched off.
+    """
+    parsed = urlparse(settings.mcp_url)
+    host = parsed.netloc or parsed.path
+    origin = f"{parsed.scheme}://{host}" if parsed.scheme else f"https://{host}"
+    return TransportSecuritySettings(
+        enable_dns_rebinding_protection=True,
+        # Both bare and :port forms: a proxy may or may not pass the port on.
+        allowed_hosts=[host, f"{host}:80", f"{host}:443"],
+        allowed_origins=[origin],
+    )
+
+
 def run_http(host: str | None = None, port: int | None = None) -> None:
     """Serve over Streamable HTTP, for a client that connects over the network.
 
@@ -360,8 +385,11 @@ def run_http(host: str | None = None, port: int | None = None) -> None:
     store = Store(get_settings())
     settings = store.settings
     server = build_server(store, authenticated=True)
+    app = server.streamable_http_app(
+        transport_security=_transport_security(settings),
+    )
     uvicorn.run(
-        server.streamable_http_app(),
+        app,
         host=host or settings.host,
         port=port or settings.mcp_port,
         proxy_headers=True,
