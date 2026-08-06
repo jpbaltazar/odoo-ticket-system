@@ -1098,13 +1098,31 @@ def test_screenshots_render_at_a_fixed_height(signed_in, store):
     assert "width: 100%" in rule
 
 
-def test_a_screenshot_can_be_expanded_without_leaving_the_ticket(signed_in, store):
+def test_clicking_a_screenshot_zooms_it_in_place(signed_in, store):
+    """A page containing nothing but the image is a dead end — you land there
+    with no ticket around it and no way back but the browser button."""
     ticket_id = _make_ticket(store)
     html = signed_in.get(f"/tickets/{ticket_id}").text
-    assert "data-zoom" in html
-    assert ">Expand<" in html
+    assert "data-lightbox" in html
+    # The anchor still points at the file: without JS the click must do
+    # something rather than nothing.
+    assert 'href="/attachments/' in html
 
     css = signed_in.get("/static/app.css").text
-    assert ".shot.is-tall img" in css
+    assert ".lightbox {" in css
     js = signed_in.get("/static/app.js").text
-    assert "data-zoom" in js and "is-tall" in js
+    assert "a[data-lightbox]" in js
+    assert "preventDefault" in js, "the click must not navigate away"
+    assert 'Escape' in js
+
+
+def test_board_thumbnails_are_a_fixed_height_not_an_aspect_ratio(signed_in, store):
+    """With aspect-ratio the thumbnail grows with its column, so a wide window
+    turns the board into a wall of screenshots."""
+    _make_ticket(store)
+    css = signed_in.get("/static/app.css").text
+    rule = css[css.index(".tcard-thumb {"):]
+    rule = rule[: rule.index("}")]
+
+    assert "height: var(--tcard-thumb-height" in rule
+    assert "aspect-ratio:" not in rule, "height must not depend on column width"

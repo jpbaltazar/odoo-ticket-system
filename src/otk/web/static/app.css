@@ -473,21 +473,51 @@ input[type="number"] { width: 90px; }
   border-radius: 4px;
   background: #fff;
 }
-/* Standing it up to full height is the common next move after glancing at it,
-   so make that free rather than a trip to the raw file. */
-.shot.is-tall img { height: min(78vh, 900px); }
-.shot-zoom {
-  margin-left: auto;
-  padding: 2px 10px;
+.shot a[data-lightbox] { cursor: zoom-in; display: block; }
+
+/* Zoom overlay. Full resolution over the ticket rather than a trip to a page
+   with nothing on it but the image and no way back except the back button. */
+.lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(6, 8, 12, .88);
+  cursor: zoom-out;
+}
+.lightbox img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  border-radius: 6px;
+  background: #fff;
+  box-shadow: 0 18px 60px rgba(0, 0, 0, .6);
+}
+.lightbox-close {
+  position: absolute;
+  top: 14px;
+  right: 18px;
+  padding: 4px 12px;
   font: inherit;
-  font-size: 12px;
-  color: var(--muted);
-  background: var(--bg);
+  font-size: 14px;
+  color: var(--fg);
+  background: var(--panel);
   border: 1px solid var(--border);
-  border-radius: 5px;
+  border-radius: 6px;
   cursor: pointer;
 }
-.shot-zoom:hover { color: var(--fg); border-color: var(--muted); }
+.lightbox-caption {
+  position: absolute;
+  bottom: 14px;
+  left: 0;
+  right: 0;
+  text-align: center;
+  font-size: 12px;
+  color: rgba(255, 255, 255, .75);
+}
 .shot figcaption {
   display: flex;
   gap: 8px;
@@ -824,7 +854,11 @@ body.centred {
 .tcard-thumb {
   display: block;
   width: 100%;
-  aspect-ratio: 16 / 9;
+  /* A fixed height, not an aspect ratio. With aspect-ratio the thumbnail grew
+     with its column, so a wide window turned a card list into a wall of
+     screenshots. This keeps a card the same height at any width — the card is
+     a scannable index entry, not a viewer. */
+  height: var(--tcard-thumb-height, 96px);
   background: var(--bg-sunken, rgba(0, 0, 0, .25));
   overflow: hidden;
 }

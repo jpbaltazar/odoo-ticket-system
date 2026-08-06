@@ -76,7 +76,8 @@
     <section class="shots">
       {% for a in ns.images %}
         <figure class="shot">
-          <a href="/attachments/{{ a.id }}" title="Open full size">
+          {# Falls back to opening the file if app.js never loads. #}
+          <a href="/attachments/{{ a.id }}" title="Click to zoom" data-lightbox>
             <img src="/attachments/{{ a.id }}" alt="{{ a.filename }}"
                  {% if a.width %}width="{{ a.width }}"{% endif %}
                  {% if a.height %}height="{{ a.height }}"{% endif %}>
@@ -86,7 +87,6 @@
             {{ a.filename }}
             <span class="muted">{{ a.size_bytes|humanbytes }}{% if a.width and a.height %} · {{ a.width }}×{{ a.height }}{% endif %}</span>
             <a href="/attachments/{{ a.id }}?download=1">download</a>
-            <button type="button" class="shot-zoom" data-zoom>Expand</button>
           </figcaption>
         </figure>
       {% endfor %}
