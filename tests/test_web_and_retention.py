@@ -903,3 +903,43 @@ def test_empty_columns_collapse(signed_in, store):
         assert "is-empty" in sections[name], f"{name} has no tickets and should collapse"
         assert "board-cards" not in sections[name], "an empty column renders no list"
         assert f">{name}" in sections[name] or name in sections[name], "label still shown"
+
+
+def test_badge_does_not_count_tickets_the_inbox_cannot_show(signed_in, store):
+    """A badge counting closed tickets never clears, and reads as an empty
+    inbox insisting there is something in it."""
+    live = _make_ticket(store)
+    hidden = _make_ticket(store)
+    store.update_ticket(hidden, {"status": "closed"}, actor="op")
+    # Both are still unread; only one is reachable.
+    assert store.unread_count(include_closed=True) == 2
+    assert store.unread_count() == 1
+
+    import re
+
+    html = signed_in.get("/").text
+    badge = re.search(r'Inbox\s*<span class="badge">(\d+)</span>', html)
+    assert badge and badge.group(1) == "1"
+
+
+def test_an_all_closed_system_says_so_rather_than_showing_empty_columns(signed_in, store):
+    for _ in range(3):
+        store.update_ticket(_make_ticket(store), {"status": "closed"}, actor="op")
+
+    import re
+
+    html = signed_in.get("/").text
+    assert "empty-state" in html
+    assert "board-col" not in html, "four collapsed strips are not an answer"
+    # The template wraps lines, so compare against collapsed whitespace.
+    assert "All 3 tickets are closed" in re.sub(r"\s+", " ", html)
+    assert 'href="/?view=closed"' in html
+
+
+def test_resolved_tickets_still_show_on_the_board(signed_in, store):
+    """They are live until autoclose ages them out."""
+    ticket_id = _make_ticket(store)
+    store.update_ticket(ticket_id, {"status": "resolved"}, actor="op")
+    html = signed_in.get("/").text
+    assert f'/tickets/{ticket_id}"' in html
+    assert "empty-state" not in html

@@ -32,7 +32,7 @@
   </nav>
 </div>
 
-{% if columns is not none %}
+{% if columns is not none and tickets %}
   <div class="board">
     {% for name in board_columns %}
       <section class="board-col prio-{{ name }}{% if not columns[name] %} is-empty{% endif %}">
@@ -106,9 +106,14 @@
     {% elif view == 'closed' %}
       <p>No closed or resolved tickets yet.</p>
     {% elif client %}
-      <p>This client has no open tickets. <a href="/?view=all&amp;client={{ client|urlencode }}">Show closed ones too</a>.</p>
+      <p>This client has nothing live. <a href="/?view=all&amp;client={{ client|urlencode }}">Show closed ones too</a>.</p>
+    {% elif counts.get('closed') %}
+      {# Not an empty system — everything has simply been dealt with. #}
+      <p>Nothing live. All {{ counts['closed'] }} ticket{{ '' if counts['closed'] == 1 else 's' }}
+         {{ 'is' if counts['closed'] == 1 else 'are' }} closed —
+         <a href="/?view=closed">look at those</a>.</p>
     {% else %}
-      <p>Nothing open. When an Odoo user reports a problem it lands here.</p>
+      <p>Nothing here yet. When an Odoo user reports a problem it lands here.</p>
     {% endif %}
   </div>
 {% else %}

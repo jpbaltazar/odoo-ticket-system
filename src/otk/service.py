@@ -1506,9 +1506,17 @@ class Store:
             counts.setdefault(row["client_id"], {})[row["priority"]] = row["n"]
         return counts
 
-    def unread_count(self, client_id: str | None = None) -> int:
+    def unread_count(self, client_id: str | None = None, include_closed: bool = False) -> int:
+        """Unread tickets the inbox can actually show.
+
+        Closed ones are excluded by default: a badge counting tickets that no
+        view reaches never clears, and reads as an empty inbox that still
+        insists there is something in it.
+        """
         sql = "SELECT COUNT(*) AS n FROM tickets WHERE unread=1"
         params: list[Any] = []
+        if not include_closed:
+            sql += " AND status != 'closed'"
         if client_id:
             sql += " AND client_id=?"
             params.append(client_id)
