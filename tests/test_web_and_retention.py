@@ -1082,3 +1082,29 @@ def test_the_content_area_is_not_width_capped(signed_in):
     main = css[css.index(".main {"):]
     main = main[: main.index("}")]
     assert "max-width" not in main, "the board and storage table want the full width"
+
+
+def test_screenshots_render_at_a_fixed_height(signed_in, store):
+    """Odoo screenshots arrive anywhere from 1280 to 3840 wide. Without a
+    ceiling one report fills the column and pushes the context off the page."""
+    _make_ticket(store)
+    css = signed_in.get("/static/app.css").text
+    rule = css[css.index(".shot img {"):]
+    rule = rule[: rule.index("}")]
+
+    assert "height: var(--shot-height, 340px)" in rule
+    assert "object-fit: contain" in rule, "a fixed box must not crop the evidence"
+    # width:auto would let a wide image win again.
+    assert "width: 100%" in rule
+
+
+def test_a_screenshot_can_be_expanded_without_leaving_the_ticket(signed_in, store):
+    ticket_id = _make_ticket(store)
+    html = signed_in.get(f"/tickets/{ticket_id}").text
+    assert "data-zoom" in html
+    assert ">Expand<" in html
+
+    css = signed_in.get("/static/app.css").text
+    assert ".shot.is-tall img" in css
+    js = signed_in.get("/static/app.js").text
+    assert "data-zoom" in js and "is-tall" in js

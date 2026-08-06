@@ -86,6 +86,7 @@
             {{ a.filename }}
             <span class="muted">{{ a.size_bytes|humanbytes }}{% if a.width and a.height %} · {{ a.width }}×{{ a.height }}{% endif %}</span>
             <a href="/attachments/{{ a.id }}?download=1">download</a>
+            <button type="button" class="shot-zoom" data-zoom>Expand</button>
           </figcaption>
         </figure>
       {% endfor %}

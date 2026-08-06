@@ -462,12 +462,32 @@ input[type="number"] { width: 90px; }
    never crop it. */
 .shot img {
   display: block;
-  width: auto;
-  max-width: 100%;
-  height: auto;
+  /* A fixed display box regardless of what the client's screen was. Odoo
+     screenshots arrive anywhere from 1280 to 3840 wide, and without a ceiling
+     one report fills the column and pushes the context off the page. Full
+     resolution is one click away — the image is already a link. */
+  width: 100%;
+  height: var(--shot-height, 340px);
+  object-fit: contain;
+  object-position: center top;
   border-radius: 4px;
   background: #fff;
 }
+/* Standing it up to full height is the common next move after glancing at it,
+   so make that free rather than a trip to the raw file. */
+.shot.is-tall img { height: min(78vh, 900px); }
+.shot-zoom {
+  margin-left: auto;
+  padding: 2px 10px;
+  font: inherit;
+  font-size: 12px;
+  color: var(--muted);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  cursor: pointer;
+}
+.shot-zoom:hover { color: var(--fg); border-color: var(--muted); }
 .shot figcaption {
   display: flex;
   gap: 8px;

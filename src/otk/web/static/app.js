@@ -9,6 +9,18 @@
 (function () {
   "use strict";
 
+  // --- expand a screenshot -------------------------------------------------
+  // The image is capped to a fixed height so one screenshot cannot own the
+  // page. This trades that for a taller view without leaving the ticket.
+  document.addEventListener("click", function (event) {
+    var button = event.target.closest("[data-zoom]");
+    if (!button) return;
+    var figure = button.closest(".shot");
+    if (!figure) return;
+    var tall = figure.classList.toggle("is-tall");
+    button.textContent = tall ? "Shrink" : "Expand";
+  });
+
   // --- Ctrl+Enter sends a reply -------------------------------------------
   // The textarea is multi-line, so plain Enter has to keep inserting newlines.
   document.addEventListener("keydown", function (event) {
