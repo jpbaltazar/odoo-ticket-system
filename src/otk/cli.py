@@ -411,6 +411,50 @@ def mcp_key_list() -> None:
     console.print(table)
 
 
+@mcp_key_app.command("check")
+def mcp_key_check(
+    token: Annotated[
+        Optional[str], typer.Argument(help="Token to test; prompted for if omitted")
+    ] = None,
+) -> None:
+    """Test an MCP token against this database.
+
+    The endpoint answers 401 identically for a missing, empty and unknown
+    token — deliberately, so it cannot be used to probe for valid ones — which
+    also means the response cannot tell you which you have. This can.
+    """
+    store = _store(announce=True)
+    if token is None:
+        token = typer.prompt("Token", hide_input=True)
+    token = token.strip()
+
+    if not token:
+        console.print("[red]empty[/red] — nothing was passed. An unset shell variable?")
+        raise typer.Exit(1)
+    console.print(f"[dim]{len(token)} chars, prefix {token.split('_')[0]!r}[/dim]")
+    if not token.startswith("otm_"):
+        console.print(
+            "[red]wrong credential type[/red] — the MCP endpoint takes an otm_ token."
+            " otk_ is a client API key and otks_ is a web session; neither is accepted."
+        )
+        raise typer.Exit(1)
+
+    principal = store.verify_mcp_key(token)
+    if principal is None:
+        known = store.list_mcp_keys()
+        console.print("[red]rejected[/red] by this database.")
+        if known:
+            console.print(f"  It holds {len(known)} token(s): "
+                          f"{', '.join(k['id'] for k in known)}")
+            console.print(f"  Yours has id [bold]{token.split('_')[2]}[/bold] — if that is not"
+                          " in the list, it was issued against a different database.")
+        else:
+            console.print("  This database holds no tokens at all — issue one here.")
+        raise typer.Exit(1)
+    console.print(f"[green]accepted[/green] — belongs to {principal.display_name}"
+                  f" ({principal.username})")
+
+
 @mcp_key_app.command("revoke")
 def mcp_key_revoke(
     key_id: Annotated[str, typer.Argument(help="Key id from `otk mcp-key list`")],
