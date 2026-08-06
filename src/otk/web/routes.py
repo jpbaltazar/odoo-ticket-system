@@ -21,6 +21,11 @@ from .deps import SESSION_COOKIE, require_csrf, require_operator, get_store
 router = APIRouter()
 
 STATUSES = [s.value for s in TicketStatus]
+
+# The board's columns. Deliberately three: the states a ticket moves through
+# while you are working it. waiting_* and closed are reachable from the All
+# tab and from the ticket page, but a wider board stops being scannable.
+BOARD_COLUMNS = ("new", "open", "resolved")
 PRIORITIES = [p.value for p in Priority]
 
 
@@ -36,6 +41,8 @@ def _render(request: Request, name: str, **context) -> HTMLResponse:
         "csrf_token": operator.csrf_token if operator else "",
         "unread_count": store.unread_count(),
         "nav_clients": store.list_clients(),
+        "new_counts": store.new_counts_by_client(),
+        "priorities_desc": list(reversed(PRIORITIES)),
         "statuses": STATUSES,
         "priorities": PRIORITIES,
     }
@@ -116,10 +123,11 @@ def inbox(
     request: Request,
     q: str | None = None,
     client: str | None = None,
-    view: str = "open",
+    view: str = "board",
     operator: OperatorPrincipal = Depends(require_operator),
     store: Store = Depends(get_store),
 ):
+    board = view == "board"
     tickets, _, _ = store.list_tickets(
         TicketFilters(
             client_id=client or None,
@@ -127,14 +135,29 @@ def inbox(
             include_closed=view in ("all", "closed"),
             unread_only=view == "unread",
             include_internal=True,
-            statuses=["closed", "resolved"] if view == "closed" else None,
+            statuses=(
+                list(BOARD_COLUMNS)
+                if board
+                else ["closed", "resolved"]
+                if view == "closed"
+                else None
+            ),
             limit=200,
         )
     )
+
+    columns = None
+    if board:
+        columns = {name: [] for name in BOARD_COLUMNS}
+        for ticket in tickets:
+            columns[ticket.status].append(ticket)
+
     return _render(
         request,
         "inbox.html",
         tickets=tickets,
+        columns=columns,
+        board_columns=BOARD_COLUMNS,
         counts=store.counts_by_status(client or None),
         q=q or "",
         client=client or "",
@@ -170,6 +193,30 @@ async def ticket_update(
     if changes:
         store.update_ticket(ticket_id, changes, actor=f"operator:{operator.username}")
     return RedirectResponse(f"/tickets/{ticket_id}", status_code=303)
+
+
+@router.post("/tickets/{ticket_id}/move")
+async def ticket_move(
+    request: Request,
+    ticket_id: str,
+    operator: OperatorPrincipal = Depends(require_csrf),
+    store: Store = Depends(get_store),
+) -> Response:
+    """Move a ticket between board columns.
+
+    Restricted to the three board statuses: this is the drag-and-drop target,
+    and a dropped card should never be able to set a state the board cannot
+    show. Answers 204 rather than redirecting, since the caller is a fetch that
+    has already moved the card.
+    """
+    form = await request.form()
+    status = str(form.get("status", "")).strip()
+    if status not in BOARD_COLUMNS:
+        raise ServiceError(
+            "invalid_status", f"a board column is one of {', '.join(BOARD_COLUMNS)}"
+        )
+    store.update_ticket(ticket_id, {"status": status}, actor=f"operator:{operator.username}")
+    return Response(status_code=204)
 
 
 @router.post("/tickets/{ticket_id}/reply")

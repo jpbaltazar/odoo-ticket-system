@@ -41,8 +41,19 @@
       <ul class="nav-list">
         <li><a class="nav-link{% if request.url.path == '/' and not client %} is-current{% endif %}" href="/">All clients</a></li>
         {% for c in nav_clients %}
+          {% set mine = new_counts.get(c.id, {}) %}
           <li><a class="nav-link{% if client is defined and client == c.id %} is-current{% endif %}"
-                 href="/?client={{ c.id }}" title="{{ c.slug }}">{{ c.name }}</a></li>
+                 href="/?client={{ c.id }}" title="{{ c.slug }}">
+            <span class="nav-label">{{ c.name }}</span>
+            {# Highest urgency first, so the thing that matters is leftmost. #}
+            {% if mine %}<span class="dots">
+              {%- for level in priorities_desc %}{% if mine.get(level) %}
+                <span class="dot prio-{{ level }}"
+                      title="{{ mine[level] }} new {{ level }} ticket{{ '' if mine[level] == 1 else 's' }}"
+                >{{ mine[level] }}</span>
+              {% endif %}{% endfor -%}
+            </span>{% endif %}
+          </a></li>
         {% else %}
           <li class="nav-empty">No clients yet</li>
         {% endfor %}

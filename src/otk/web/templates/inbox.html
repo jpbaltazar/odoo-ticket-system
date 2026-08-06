@@ -26,13 +26,69 @@
   </form>
 
   <nav class="tabs">
-    {% for name, label in [('open', 'Open'), ('unread', 'Unread'), ('all', 'All'), ('closed', 'Closed')] %}
+    {% for name, label in [('board', 'Board'), ('unread', 'Unread'), ('all', 'All'), ('closed', 'Closed')] %}
       <a class="tab{% if view == name %} is-active{% endif %}" href="/?view={{ name }}{{ keep }}">{{ label }}</a>
     {% endfor %}
   </nav>
 </div>
 
-{% if not tickets %}
+{% if columns is not none %}
+  {# Drag and drop is an enhancement: without app.js the columns still show
+     where everything stands, and the ticket page still changes status. #}
+  <div class="board" data-board data-csrf="{{ csrf_token }}">
+    {% for name in board_columns %}
+      <section class="board-col" data-status="{{ name }}" aria-label="{{ name }}">
+        <h2 class="board-head status-{{ name }}">
+          {{ name.replace('_', ' ') }}
+          <span class="board-count">{{ columns[name]|length }}</span>
+        </h2>
+        <ul class="board-cards" data-dropzone>
+          {% for t in columns[name] %}
+            {% set ns = namespace(shot=none, image=none) %}
+            {% for a in t.attachments %}
+              {% if a.content_type.startswith('image/') %}
+                {% if ns.image is none %}{% set ns.image = a %}{% endif %}
+                {% if a.role == 'screenshot' and ns.shot is none %}{% set ns.shot = a %}{% endif %}
+              {% endif %}
+            {% endfor %}
+            {% set thumb = ns.shot or ns.image %}
+            <li class="card prio-{{ t.priority }}{% if t.unread %} is-unread{% endif %}"
+                draggable="true" data-ticket="{{ t.id }}">
+              <a class="card-link" href="/tickets/{{ t.id }}">
+                {% if thumb %}
+                  <img class="card-thumb" src="/attachments/{{ thumb.id }}/thumb"
+                       alt="" loading="lazy" width="240" height="120">
+                {% endif %}
+                <span class="card-title">
+                  {% if t.unread %}<span class="unread-dot" title="Unread">●</span>{% endif %}
+                  {{ t.title }}
+                </span>
+              </a>
+              <p class="card-meta">
+                <span class="ref">{{ t.ref }}</span>
+                <span class="pill prio-pill">{{ t.priority }}</span>
+                <span class="sep">·</span>
+                <span>{{ t.client_name }}</span>
+              </p>
+              <p class="card-meta muted">
+                <span title="{{ t.created_at|localtime }}">{{ t.created_at|ago }}</span>
+                {% if t.comment_count %}<span class="sep">·</span><span>{{ t.comment_count }}💬</span>{% endif %}
+              </p>
+            </li>
+          {% else %}
+            <li class="card-empty">nothing here</li>
+          {% endfor %}
+        </ul>
+      </section>
+    {% endfor %}
+  </div>
+  <p class="muted list-footer">
+    Drag a card to change its status.
+    Tickets that are waiting or closed are not on the board —
+    <a href="/?view=all{% if client %}&amp;client={{ client|urlencode }}{% endif %}">see all</a>.
+  </p>
+
+{% elif not tickets %}
   <div class="empty-state">
     <p class="empty-title">Nothing here.</p>
     {% if q %}

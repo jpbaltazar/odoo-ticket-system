@@ -631,3 +631,132 @@ def test_renaming_an_operator_does_not_rewrite_past_replies(store):
 def test_display_name_cannot_be_blanked(store):
     with pytest.raises(ServiceError):
         store.set_operator_display_name("jose", "   ")
+
+
+# ------------------------------------------------------------------- board
+
+
+def test_reply_moves_a_new_ticket_to_open(signed_in, store):
+    """Answering a client means the ticket is being worked."""
+    ticket_id = _make_ticket(store)
+    assert store.get_ticket(ticket_id).status == "new"
+    csrf = store.authenticate_session(signed_in.cookies["otk_session"]).csrf_token
+    signed_in.post(
+        f"/tickets/{ticket_id}/reply",
+        data={"body": "Looking now.", "csrf_token": csrf},
+        follow_redirects=False,
+    )
+    assert store.get_ticket(ticket_id).status == "open"
+
+
+def test_internal_note_does_not_move_the_ticket(signed_in, store):
+    """A private note is bookkeeping, not an answer to anyone."""
+    ticket_id = _make_ticket(store)
+    csrf = store.authenticate_session(signed_in.cookies["otk_session"]).csrf_token
+    signed_in.post(
+        f"/tickets/{ticket_id}/reply",
+        data={"body": "deprioritise", "internal": "on", "csrf_token": csrf},
+        follow_redirects=False,
+    )
+    assert store.get_ticket(ticket_id).status == "new"
+
+
+@pytest.mark.parametrize("terminal", ["resolved", "closed"])
+def test_reply_does_not_reopen_a_finished_ticket(signed_in, store, terminal):
+    """Reopening is a decision, not a side effect of adding a note."""
+    ticket_id = _make_ticket(store)
+    store.update_ticket(ticket_id, {"status": terminal}, actor="operator")
+    csrf = store.authenticate_session(signed_in.cookies["otk_session"]).csrf_token
+    signed_in.post(
+        f"/tickets/{ticket_id}/reply",
+        data={"body": "one more thing", "csrf_token": csrf},
+        follow_redirects=False,
+    )
+    assert store.get_ticket(ticket_id).status == terminal
+
+
+def test_client_reply_does_not_advance_status(settings, store):
+    """Only the operator answering moves it; the client writing does not."""
+    from otk.api.app import create_app
+
+    ticket_id = _make_ticket(store)
+    client = store.get_client_by_slug("acme")
+    _, token = store.issue_api_key(client.id, name="prod")
+    with TestClient(create_app(settings, store)) as api:
+        api.post(
+            f"/api/v1/tickets/{ticket_id}/comments",
+            json={"body": "any news?"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+    assert store.get_ticket(ticket_id).status == "new"
+
+
+def test_board_groups_tickets_into_three_columns(signed_in, store):
+    ids = [_make_ticket(store, colour=(i, i, i)) for i in range(3)]
+    store.update_ticket(ids[1], {"status": "open"}, actor="op")
+    store.update_ticket(ids[2], {"status": "resolved"}, actor="op")
+
+    html = signed_in.get("/").text
+    for status in ("new", "open", "resolved"):
+        assert f'data-status="{status}"' in html
+    for ticket_id in ids:
+        assert f'data-ticket="{ticket_id}"' in html
+    assert 'draggable="true"' in html
+
+
+def test_board_omits_statuses_it_cannot_show(signed_in, store):
+    """A three-column board cannot represent waiting or closed, so those are
+    left off rather than misfiled into a column that would relabel them."""
+    ticket_id = _make_ticket(store)
+    store.update_ticket(ticket_id, {"status": "waiting_client"}, actor="op")
+    assert f'data-ticket="{ticket_id}"' not in signed_in.get("/").text
+    # The flat list has no board cards, so look for the link instead.
+    assert f'/tickets/{ticket_id}"' in signed_in.get("/?view=all").text
+
+
+def test_dragging_a_card_moves_the_ticket(signed_in, store):
+    ticket_id = _make_ticket(store)
+    csrf = store.authenticate_session(signed_in.cookies["otk_session"]).csrf_token
+    response = signed_in.post(
+        f"/tickets/{ticket_id}/move", data={"status": "resolved", "csrf_token": csrf}
+    )
+    assert response.status_code == 204
+    assert store.get_ticket(ticket_id).status == "resolved"
+
+
+def test_move_only_accepts_board_columns(signed_in, store):
+    """A dropped card must not be able to set a state the board cannot show."""
+    ticket_id = _make_ticket(store)
+    csrf = store.authenticate_session(signed_in.cookies["otk_session"]).csrf_token
+    response = signed_in.post(
+        f"/tickets/{ticket_id}/move", data={"status": "closed", "csrf_token": csrf}
+    )
+    assert response.status_code == 400
+    assert store.get_ticket(ticket_id).status == "new"
+
+
+def test_move_requires_csrf(signed_in, store):
+    ticket_id = _make_ticket(store)
+    response = signed_in.post(f"/tickets/{ticket_id}/move", data={"status": "resolved"})
+    assert response.status_code == 403
+    assert store.get_ticket(ticket_id).status == "new"
+
+
+# ------------------------------------------------------- client priority dots
+
+
+def test_client_row_shows_new_tickets_by_priority(signed_in, store):
+    for priority in ("urgent", "urgent", "high", "low"):
+        ticket_id = _make_ticket(store)
+        store.update_ticket(ticket_id, {"priority": priority}, actor="op")
+    # An open ticket is no longer "new" and must not be counted.
+    store.update_ticket(_make_ticket(store), {"status": "open"}, actor="op")
+
+    counts = store.new_counts_by_client()
+    client_id = store.get_client_by_slug("acme").id
+    assert counts[client_id] == {"urgent": 2, "high": 1, "low": 1}
+
+    html = signed_in.get("/").text
+    assert 'class="dot prio-urgent"' in html
+    assert "2 new urgent tickets" in html
+    assert "1 new high ticket" in html

@@ -1229,6 +1229,15 @@ class Store:
                 if author_type == "client":
                     # A client reply makes the ticket actionable again.
                     updates.append("unread=1")
+                elif author_type == "agent" and visibility == "public":
+                    # Answering a client means the ticket is being worked, so
+                    # move it out of the untouched states. `resolved` and
+                    # `closed` are left alone: reopening is a decision, not a
+                    # side effect of adding a note.
+                    updates.append(
+                        "status=CASE WHEN status IN ('new','waiting_client',"
+                        "'waiting_third_party') THEN 'open' ELSE status END"
+                    )
                 self.conn.execute(
                     f"UPDATE tickets SET {', '.join(updates)} WHERE id=?", [*params, ticket.id]
                 )
@@ -1465,6 +1474,21 @@ class Store:
             params.append(client_id)
         sql += " GROUP BY status"
         return {row["status"]: row["n"] for row in self.conn.execute(sql, params)}
+
+    def new_counts_by_client(self) -> dict[str, dict[str, int]]:
+        """New tickets per client, broken down by priority.
+
+        Drives the badges in the client list: which client is waiting, and
+        whether it is one urgent thing or five trivial ones.
+        """
+        rows = self.conn.execute(
+            "SELECT client_id, priority, COUNT(*) AS n FROM tickets"
+            " WHERE status='new' GROUP BY client_id, priority"
+        )
+        counts: dict[str, dict[str, int]] = {}
+        for row in rows:
+            counts.setdefault(row["client_id"], {})[row["priority"]] = row["n"]
+        return counts
 
     def unread_count(self, client_id: str | None = None) -> int:
         sql = "SELECT COUNT(*) AS n FROM tickets WHERE unread=1"
