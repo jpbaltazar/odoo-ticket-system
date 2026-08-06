@@ -103,12 +103,15 @@ launched client should use stdio over SSH instead and needs none of this.
 Add to `/etc/odoo-tickets/env`:
 
 ```bash
-OTK_MCP_URL=https://tickets.admin.abansec.com
+OTK_MCP_URL=https://tickets.admin.abansec.com/mcp
 OTK_MCP_PORT=8789
 ```
 
-The URL must match what the connector is pointed at: it is advertised in the
-auth metadata, and pinning it is what stops a token issued for one host being
+**Include the `/mcp` path.** The URL is the resource identifier, and RFC 9728
+derives the metadata path from it: with `/mcp` the discovery document is
+published at `/.well-known/oauth-protected-resource/mcp`, without it at
+`/.well-known/oauth-protected-resource`. It must also match what the connector
+is pointed at — pinning it is what stops a token issued for one host being
 replayed against another.
 
 ```bash
@@ -129,9 +132,9 @@ location /mcp {
     proxy_buffering off;          # it streams; buffering stalls responses
 }
 
-# Auth discovery. RFC 9728 puts this at the host root, not under /mcp, and a
-# client reads it *before* authenticating. Miss it and the connector fails at
-# registration with nothing useful in the log.
+# Auth discovery, read *before* authenticating. A prefix match, so it covers
+# both /.well-known/oauth-protected-resource and the /mcp-suffixed form. Miss
+# it and the connector fails at registration with nothing useful in the log.
 location /.well-known/oauth-protected-resource {
     proxy_pass http://127.0.0.1:8789;
     proxy_set_header Host              $host;
@@ -148,7 +151,7 @@ location /.well-known/oauth-protected-resource {
 Confirm before adding the connector:
 
 ```bash
-curl -s -o /dev/null -w '%{http_code}\n' https://tickets.admin.abansec.com/.well-known/oauth-protected-resource   # 200
+curl -s -o /dev/null -w '%{http_code}\n' https://tickets.admin.abansec.com/.well-known/oauth-protected-resource/mcp   # 200
 curl -s -o /dev/null -w '%{http_code}\n' -X POST https://tickets.admin.abansec.com/mcp                            # 401
 ```
 
