@@ -716,22 +716,6 @@ def test_client_row_shows_new_tickets_by_priority(signed_in, store):
     assert "1 new high ticket" in html
 
 
-def test_inbox_orders_by_urgency_and_hides_closed(signed_in, store):
-    """The default view answers 'what should I look at next'."""
-    import re
-
-    wanted = ["low", "urgent", "normal", "high", "urgent"]
-    for priority in wanted:
-        store.update_ticket(_make_ticket(store), {"priority": priority}, actor="op")
-    closed = _make_ticket(store)
-    store.update_ticket(closed, {"priority": "urgent", "status": "closed"}, actor="op")
-
-    html = signed_in.get("/").text
-    order = re.findall(r'<span class="pill prio-pill">(\w+)</span>', html)
-    assert order == ["urgent", "urgent", "high", "normal", "low"]
-    assert f'/tickets/{closed}"' not in html, "closed tickets are not in the default view"
-    assert f'/tickets/{closed}"' in signed_in.get("/?view=closed").text
-
 
 def test_priority_ordering_refuses_a_cursor(store):
     """The rank is computed, not stored, so a keyset cursor over it would be a
@@ -832,3 +816,90 @@ def test_static_urls_are_versioned(signed_in):
     html = signed_in.get("/").text
     assert re.search(r'app\.css\?v=[\w.\-]+', html)
     assert re.search(r'app\.js\?v=[\w.\-]+', html)
+
+
+def test_inbox_groups_tickets_into_priority_columns(signed_in, store):
+    """Columns are urgency levels, not statuses: the question is what to look
+    at next."""
+    import re
+
+    made = {}
+    for priority in ("low", "urgent", "normal", "high", "urgent"):
+        ticket_id = _make_ticket(store)
+        store.update_ticket(ticket_id, {"priority": priority}, actor="op")
+        made.setdefault(priority, []).append(ticket_id)
+
+    html = signed_in.get("/").text
+    sections = re.findall(
+        r'<section class="board-col prio-(\w+)">(.*?)</section>', html, re.S
+    )
+    assert [name for name, _ in sections] == ["urgent", "high", "normal", "low"]
+
+    for name, block in sections:
+        header = re.search(r'board-count">(\d+)<', block).group(1)
+        links = re.findall(r'/tickets/(tkt_\w+)"', block)
+        assert int(header) == len(set(links)), f"{name} header disagrees with its cards"
+        assert set(links) == set(made.get(name, [])), f"wrong tickets in {name}"
+
+
+def test_board_shows_everything_except_closed(signed_in, store):
+    resolved = _make_ticket(store)
+    store.update_ticket(resolved, {"status": "resolved"}, actor="op")
+    waiting = _make_ticket(store)
+    store.update_ticket(waiting, {"status": "waiting_client"}, actor="op")
+    closed = _make_ticket(store)
+    store.update_ticket(closed, {"status": "closed"}, actor="op")
+
+    html = signed_in.get("/").text
+    assert f'/tickets/{resolved}"' in html, "resolved stays visible until it ages away"
+    assert f'/tickets/{waiting}"' in html
+    assert f'/tickets/{closed}"' not in html
+    assert f'/tickets/{closed}"' in signed_in.get("/?view=closed").text
+
+
+def test_card_keeps_the_image_and_the_text_in_separate_blocks(signed_in, store):
+    """Nesting them in one anchor made the text wrap around the thumbnail."""
+    import re
+
+    _make_ticket(store)
+    html = signed_in.get("/").text
+    # `card[^"]*` also matches `card-empty`; require the exact class.
+    card = re.search(r'<li class="card(?: [^"]*)?">(.*?)</li>', html, re.S).group(1)
+
+    thumb = re.search(r'<a class="card-thumb".*?</a>', card, re.S).group(0)
+    body = re.search(r'<div class="card-body">.*?</div>', card, re.S).group(0)
+    assert "<img" in thumb and "card-title" not in thumb
+    assert "card-title" in body and "<img" not in body
+
+
+def test_the_board_is_not_draggable(signed_in, store):
+    """Moving a ticket between urgency columns would be a judgement, not a
+    gesture."""
+    _make_ticket(store)
+    html = signed_in.get("/").text
+    assert "draggable" not in html
+    assert "data-dropzone" not in html
+
+
+def test_empty_columns_collapse(signed_in, store):
+    """An empty column shrinks to its label so the occupied ones get the room,
+    but stays visible — "no urgent tickets" is worth seeing."""
+    import re
+
+    ticket_id = _make_ticket(store)
+    store.update_ticket(ticket_id, {"priority": "urgent"}, actor="op")
+
+    html = signed_in.get("/").text
+    sections = dict(
+        (m.group(1), m.group(0))
+        for m in re.finditer(
+            r'<section class="board-col prio-(\w+)[^"]*">.*?</section>', html, re.S
+        )
+    )
+    assert "is-empty" not in sections["urgent"]
+    assert "board-cards" in sections["urgent"]
+
+    for name in ("high", "normal", "low"):
+        assert "is-empty" in sections[name], f"{name} has no tickets and should collapse"
+        assert "board-cards" not in sections[name], "an empty column renders no list"
+        assert f">{name}" in sections[name] or name in sections[name], "label still shown"

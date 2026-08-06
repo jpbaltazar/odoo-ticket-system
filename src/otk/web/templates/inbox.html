@@ -26,13 +26,76 @@
   </form>
 
   <nav class="tabs">
-    {% for name, label in [('priority', 'By urgency'), ('unread', 'Unread'), ('all', 'All'), ('closed', 'Closed')] %}
+    {% for name, label in [('board', 'By urgency'), ('unread', 'Unread'), ('all', 'All'), ('closed', 'Closed')] %}
       <a class="tab{% if view == name %} is-active{% endif %}" href="/?view={{ name }}{{ keep }}">{{ label }}</a>
     {% endfor %}
   </nav>
 </div>
 
-{% if not tickets %}
+{% if columns is not none %}
+  <div class="board">
+    {% for name in board_columns %}
+      <section class="board-col prio-{{ name }}{% if not columns[name] %} is-empty{% endif %}">
+        <h2 class="board-head">
+          <span class="board-swatch prio-{{ name }}"></span>
+          {{ name }}
+          <span class="board-count">{{ columns[name]|length }}</span>
+        </h2>
+        {% if columns[name] %}
+        <ul class="board-cards">
+          {% for t in columns[name] %}
+            {% set ns = namespace(shot=none, image=none) %}
+            {% for a in t.attachments %}
+              {% if a.content_type.startswith('image/') %}
+                {% if ns.image is none %}{% set ns.image = a %}{% endif %}
+                {% if a.role == 'screenshot' and ns.shot is none %}{% set ns.shot = a %}{% endif %}
+              {% endif %}
+            {% endfor %}
+            {% set thumb = ns.shot or ns.image %}
+
+            {# The image and the text are separate blocks. Nesting them in one
+               anchor made the text wrap around the thumbnail. #}
+            <li class="card{% if t.unread %} is-unread{% endif %}">
+              <a class="card-thumb" href="/tickets/{{ t.id }}" aria-hidden="true" tabindex="-1">
+                {% if thumb %}
+                  <img src="/attachments/{{ thumb.id }}/thumb" alt="" loading="lazy">
+                {% elif t.purged_at %}
+                  <span class="thumb-placeholder">purged</span>
+                {% else %}
+                  <span class="thumb-placeholder">no image</span>
+                {% endif %}
+              </a>
+
+              <div class="card-body">
+                <a class="card-title" href="/tickets/{{ t.id }}">
+                  {% if t.unread %}<span class="unread-dot" title="Unread">●</span>{% endif %}
+                  {{ t.title }}
+                </a>
+                <p class="card-meta">
+                  <span class="ref">{{ t.ref }}</span>
+                  <span class="pill status-{{ t.status }}">{{ t.status.replace('_', ' ') }}</span>
+                </p>
+                <p class="card-meta muted">
+                  <span>{{ t.client_name }}</span>
+                  <span class="sep">·</span>
+                  <span title="{{ t.created_at|localtime }}">{{ t.created_at|ago }}</span>
+                  {% if t.comment_count %}<span class="sep">·</span><span>{{ t.comment_count }} reply{{ '' if t.comment_count == 1 else 'ies' }}</span>{% endif %}
+                </p>
+              </div>
+            </li>
+          {% endfor %}
+        </ul>
+        {% endif %}
+      </section>
+    {% endfor %}
+  </div>
+  <p class="muted list-footer">
+    Everything still live, grouped by urgency. Closed tickets are on the
+    <a href="/?view=closed{% if client %}&amp;client={{ client|urlencode }}{% endif %}">Closed</a> tab.
+    Change a ticket's urgency on its own page.
+  </p>
+
+{% elif not tickets %}
   <div class="empty-state">
     <p class="empty-title">Nothing here.</p>
     {% if q %}

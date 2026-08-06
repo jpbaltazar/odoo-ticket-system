@@ -24,6 +24,12 @@ STATUSES = [s.value for s in TicketStatus]
 
 PRIORITIES = [p.value for p in Priority]
 
+# Board columns, most urgent first. Grouped by priority rather than status
+# because the question the inbox answers is what to look at next. Nothing is
+# draggable: moving a ticket between these would change its urgency, which is
+# a judgement, not a gesture.
+BOARD_COLUMNS = tuple(reversed(PRIORITIES))
+
 
 def _templates(request: Request):
     return request.app.state.templates
@@ -119,28 +125,44 @@ def inbox(
     request: Request,
     q: str | None = None,
     client: str | None = None,
-    view: str = "priority",
+    view: str = "board",
     operator: OperatorPrincipal = Depends(require_operator),
     store: Store = Depends(get_store),
 ):
-    # The default view answers "what should I look at next", so it is ordered
-    # by urgency rather than arrival and leaves closed tickets out entirely.
+    board = view == "board"
     tickets, _, _ = store.list_tickets(
         TicketFilters(
             client_id=client or None,
             search=q or None,
-            include_closed=view in ("all", "closed"),
+            include_closed=view in ("all", "closed") or board,
             unread_only=view == "unread",
             include_internal=True,
-            sort="priority" if view == "priority" else "recent",
-            statuses=["closed", "resolved"] if view == "closed" else None,
+            sort="priority" if board else "recent",
+            # The board shows everything still live — only `closed` is left
+            # out, so a resolved ticket stays visible until it ages away.
+            statuses=(
+                [s for s in STATUSES if s != "closed"]
+                if board
+                else ["closed", "resolved"]
+                if view == "closed"
+                else None
+            ),
             limit=200,
         )
     )
+
+    columns = None
+    if board:
+        columns = {name: [] for name in BOARD_COLUMNS}
+        for ticket in tickets:
+            columns[ticket.priority].append(ticket)
+
     return _render(
         request,
         "inbox.html",
         tickets=tickets,
+        columns=columns,
+        board_columns=BOARD_COLUMNS,
         counts=store.counts_by_status(client or None),
         q=q or "",
         client=client or "",

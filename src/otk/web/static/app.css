@@ -721,3 +721,117 @@ body.centred {
 .dot.prio-high   { background: #f5a524; }
 .dot.prio-normal { background: #6ea8fe; }
 .dot.prio-low    { background: var(--muted); color: var(--bg); }
+
+/* ------------------------------------------------------- urgency board */
+
+/* Flex rather than fixed grid tracks: an empty column shrinks to its label and
+   the columns that hold tickets divide the space that frees up, without the
+   template having to know how many are occupied. */
+.board {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: flex-start;
+}
+.board-col {
+  /* min-width: 0 or a long unbroken title stretches its column past its share. */
+  flex: 1 1 0;
+  min-width: 0;
+}
+.board-col.is-empty {
+  flex: 0 0 auto;
+  opacity: .55;
+}
+.board-col.is-empty .board-head { margin: 0; }
+@media (max-width: 700px) {
+  .board { display: block; }
+  .board-col { margin-bottom: 12px; }
+  .board-col.is-empty { display: none; }
+}
+
+.board-col {
+  background: var(--bg-sunken, rgba(0, 0, 0, .18));
+  border: 1px solid var(--border);
+  border-top-width: 3px;
+  border-radius: 10px;
+  padding: 10px;
+}
+.board-col.prio-urgent { border-top-color: #e5484d; }
+.board-col.prio-high   { border-top-color: #f5a524; }
+.board-col.prio-normal { border-top-color: #6ea8fe; }
+.board-col.prio-low    { border-top-color: var(--muted); }
+
+.board-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 0 0 10px;
+  font-size: 12px;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.board-swatch { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+.board-swatch.prio-urgent { background: #e5484d; }
+.board-swatch.prio-high   { background: #f5a524; }
+.board-swatch.prio-normal { background: #6ea8fe; }
+.board-swatch.prio-low    { background: var(--muted); }
+.board-count {
+  margin-left: auto;
+  padding: 0 7px;
+  border-radius: 10px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  font-size: 11px;
+}
+
+.board-cards { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+
+/* The thumbnail and the text are separate blocks stacked vertically, not an
+   image with text flowing around it. */
+.card {
+  display: block;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  min-width: 0;
+}
+.card.is-unread { border-color: var(--accent, #6ea8fe); }
+
+.card-thumb {
+  display: block;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  background: var(--bg-sunken, rgba(0, 0, 0, .25));
+  overflow: hidden;
+}
+.card-thumb img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.card-thumb .thumb-placeholder {
+  display: flex; align-items: center; justify-content: center;
+  width: 100%; height: 100%; font-size: 11px; color: var(--muted);
+}
+
+.card-body { display: block; padding: 8px 10px; min-width: 0; }
+.card-title {
+  display: block;
+  font-weight: 600;
+  line-height: 1.3;
+  color: inherit;
+  text-decoration: none;
+  overflow-wrap: anywhere;
+}
+.card-title:hover { text-decoration: underline; }
+.card-meta {
+  margin: 5px 0 0;
+  font-size: 12px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+}
+.card-empty {
+  color: var(--muted); font-size: 12px; text-align: center;
+  padding: 12px 2px; border: 1px dashed var(--border); border-radius: 8px;
+}
