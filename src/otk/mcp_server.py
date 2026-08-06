@@ -53,6 +53,14 @@ def _triage_author(store: Store) -> str:
 
 MAX_BODY_CHARS = 4000
 
+# Priority drives whether a ticket pushes to the operator's phone, so this
+# server may only move a ticket around *below* the alerting levels. It cannot
+# raise one to high or urgent, and it cannot touch one already there: an
+# automated escalation would ring at 3am on a hallucination, and an automated
+# de-escalation would bury something a human deliberately flagged. Saying "this
+# looks urgent" in an internal note is always available and costs nothing.
+ALERTING_PRIORITIES = frozenset({"high", "urgent"})
+
 
 class StoreTokenVerifier:
     """Verifies MCP bearer tokens against the database.
@@ -308,18 +316,33 @@ def build_server(store: Store | None = None, *, authenticated: bool = False) -> 
 
     @server.tool(annotations=annotating)
     def suggest_priority(ref: str, priority: str, because: str) -> dict[str, Any]:
-        """Change a ticket's priority, recording why in an internal note.
+        """Adjust a ticket's priority below the alerting levels.
 
-        `priority` is low, normal, high or urgent. The reason is required and
-        is stored — a priority that changed with no explanation is worse than
-        one that never changed.
+        You may set `low` or `normal`, and only on a ticket that is not already
+        `high` or `urgent`. Priority decides what pages the operator, so
+        escalating is theirs to do — if you think something is urgent, say so
+        in an internal note and let them make the call. The reason is required
+        and is stored: a priority that changed with no explanation is worse
+        than one that never changed.
         """
         if priority not in PRIORITY_ORDER:
             raise ServiceError(
                 "invalid_priority", f"priority must be one of {', '.join(PRIORITY_ORDER)}"
             )
+        if priority in ALERTING_PRIORITIES:
+            raise ServiceError(
+                "escalation_not_permitted",
+                f"{priority!r} is an alerting level and only the operator sets it."
+                " Record why you think it belongs there with add_internal_note.",
+            )
         ticket = store.get_ticket(ref)
         before = ticket.priority
+        if before in ALERTING_PRIORITIES:
+            raise ServiceError(
+                "already_escalated",
+                f"{ticket.ref} is {before!r}; someone raised it deliberately and"
+                " lowering it would bury it. Use add_internal_note instead.",
+            )
         author = _triage_author(store)
         store.update_ticket(ticket.id, {"priority": priority}, actor=author)
         store.add_comment(

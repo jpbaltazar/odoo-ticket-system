@@ -182,6 +182,31 @@ WantedBy=timers.target
 Run `otk purge --older-than N` by hand once first and read what it lists.
 `--yes` skips the confirmation, and this deletes files permanently.
 
+## Auto-close timer
+
+Closes tickets left resolved and untouched for `OTK_AUTOCLOSE_DAYS` (5 by
+default; 0 disables). Unlike purging this destroys nothing — a closed ticket
+keeps everything and can be reopened.
+
+```ini
+# /etc/systemd/system/otk-autoclose.service
+[Service]
+Type=oneshot
+User=otk
+EnvironmentFile=/etc/odoo-tickets/env
+ExecStart=/opt/odoo-tickets/.venv/bin/otk autoclose
+```
+```ini
+# /etc/systemd/system/otk-autoclose.timer
+[Timer]
+OnCalendar=daily
+Persistent=true
+[Install]
+WantedBy=timers.target
+```
+
+Run `otk autoclose --dry-run` first to see what it would take.
+
 ## Backups
 
 `backup.sh` copies the database with SQLite's online backup API (a plain `cp`

@@ -687,6 +687,50 @@ def purge(
 
 
 @app.command()
+def autoclose(
+    days: Annotated[
+        Optional[int], typer.Option(help="Override OTK_AUTOCLOSE_DAYS for this run")
+    ] = None,
+    dry_run: Annotated[bool, typer.Option(help="List what would close, change nothing")] = False,
+) -> None:
+    """Close tickets that have sat resolved and untouched.
+
+    The clock runs from the last activity, not from when it was resolved, so a
+    client replying "still broken" to a resolved ticket keeps it open rather
+    than having it closed out from under them days later.
+    """
+    store = _store()
+    window = days if days is not None else store.settings.autoclose_days
+    if window <= 0:
+        console.print("[dim]Auto-close is disabled (OTK_AUTOCLOSE_DAYS=0).[/dim]")
+        return
+
+    if dry_run:
+        from .service import iso, now
+        from datetime import timedelta
+
+        cutoff = iso(now() - timedelta(days=window))
+        rows = store.conn.execute(
+            "SELECT ref, updated_at FROM tickets WHERE status='resolved' AND updated_at < ?"
+            " ORDER BY updated_at",
+            (cutoff,),
+        ).fetchall()
+        if not rows:
+            console.print(f"[dim]Nothing has been resolved and untouched for {window} days.[/dim]")
+            return
+        console.print(f"Would close {len(rows)} ticket(s) resolved over {window} days ago:")
+        for row in rows:
+            console.print(f"  {row['ref']}  [dim]last touched {row['updated_at'][:10]}[/dim]")
+        return
+
+    closed = store.autoclose_resolved(window)
+    if closed:
+        console.print(f"[green]closed[/green] {len(closed)}: {', '.join(closed)}")
+    else:
+        console.print(f"[dim]Nothing resolved and untouched for {window} days.[/dim]")
+
+
+@app.command()
 def gc(
     yes: Annotated[bool, typer.Option("--yes", help="Delete without confirming")] = False,
 ) -> None:

@@ -633,7 +633,7 @@ def test_display_name_cannot_be_blanked(store):
         store.set_operator_display_name("jose", "   ")
 
 
-# ------------------------------------------------------------------- board
+# ---------------------------------------------------- replying and ordering
 
 
 def test_reply_moves_a_new_ticket_to_open(signed_in, store):
@@ -691,55 +691,9 @@ def test_client_reply_does_not_advance_status(settings, store):
     assert store.get_ticket(ticket_id).status == "new"
 
 
-def test_board_groups_tickets_into_three_columns(signed_in, store):
-    ids = [_make_ticket(store, colour=(i, i, i)) for i in range(3)]
-    store.update_ticket(ids[1], {"status": "open"}, actor="op")
-    store.update_ticket(ids[2], {"status": "resolved"}, actor="op")
-
-    html = signed_in.get("/").text
-    for status in ("new", "open", "resolved"):
-        assert f'data-status="{status}"' in html
-    for ticket_id in ids:
-        assert f'data-ticket="{ticket_id}"' in html
-    assert 'draggable="true"' in html
 
 
-def test_board_omits_statuses_it_cannot_show(signed_in, store):
-    """A three-column board cannot represent waiting or closed, so those are
-    left off rather than misfiled into a column that would relabel them."""
-    ticket_id = _make_ticket(store)
-    store.update_ticket(ticket_id, {"status": "waiting_client"}, actor="op")
-    assert f'data-ticket="{ticket_id}"' not in signed_in.get("/").text
-    # The flat list has no board cards, so look for the link instead.
-    assert f'/tickets/{ticket_id}"' in signed_in.get("/?view=all").text
 
-
-def test_dragging_a_card_moves_the_ticket(signed_in, store):
-    ticket_id = _make_ticket(store)
-    csrf = store.authenticate_session(signed_in.cookies["otk_session"]).csrf_token
-    response = signed_in.post(
-        f"/tickets/{ticket_id}/move", data={"status": "resolved", "csrf_token": csrf}
-    )
-    assert response.status_code == 204
-    assert store.get_ticket(ticket_id).status == "resolved"
-
-
-def test_move_only_accepts_board_columns(signed_in, store):
-    """A dropped card must not be able to set a state the board cannot show."""
-    ticket_id = _make_ticket(store)
-    csrf = store.authenticate_session(signed_in.cookies["otk_session"]).csrf_token
-    response = signed_in.post(
-        f"/tickets/{ticket_id}/move", data={"status": "closed", "csrf_token": csrf}
-    )
-    assert response.status_code == 400
-    assert store.get_ticket(ticket_id).status == "new"
-
-
-def test_move_requires_csrf(signed_in, store):
-    ticket_id = _make_ticket(store)
-    response = signed_in.post(f"/tickets/{ticket_id}/move", data={"status": "resolved"})
-    assert response.status_code == 403
-    assert store.get_ticket(ticket_id).status == "new"
 
 
 # ------------------------------------------------------- client priority dots
@@ -760,3 +714,121 @@ def test_client_row_shows_new_tickets_by_priority(signed_in, store):
     assert 'class="dot prio-urgent"' in html
     assert "2 new urgent tickets" in html
     assert "1 new high ticket" in html
+
+
+def test_inbox_orders_by_urgency_and_hides_closed(signed_in, store):
+    """The default view answers 'what should I look at next'."""
+    import re
+
+    wanted = ["low", "urgent", "normal", "high", "urgent"]
+    for priority in wanted:
+        store.update_ticket(_make_ticket(store), {"priority": priority}, actor="op")
+    closed = _make_ticket(store)
+    store.update_ticket(closed, {"priority": "urgent", "status": "closed"}, actor="op")
+
+    html = signed_in.get("/").text
+    order = re.findall(r'<span class="pill prio-pill">(\w+)</span>', html)
+    assert order == ["urgent", "urgent", "high", "normal", "low"]
+    assert f'/tickets/{closed}"' not in html, "closed tickets are not in the default view"
+    assert f'/tickets/{closed}"' in signed_in.get("/?view=closed").text
+
+
+def test_priority_ordering_refuses_a_cursor(store):
+    """The rank is computed, not stored, so a keyset cursor over it would be a
+    lie the moment a priority changes."""
+    from otk.service import TicketFilters
+
+    # Two tickets, so the first page reports has_more and yields a cursor.
+    _make_ticket(store)
+    _make_ticket(store)
+    _, cursor, has_more = store.list_tickets(TicketFilters(limit=1))
+    assert has_more and cursor
+    with pytest.raises(ServiceError, match="does not paginate"):
+        store.list_tickets(TicketFilters(sort="priority", cursor=cursor, limit=1))
+
+
+# --------------------------------------------------------------- auto-close
+
+
+def _age(store, ticket_id, days):
+    from datetime import timedelta
+
+    from otk.service import iso, now
+
+    stamp = iso(now() - timedelta(days=days))
+    with store._transaction():
+        store.conn.execute(
+            "UPDATE tickets SET updated_at=?, resolved_at=? WHERE id=?",
+            (stamp, stamp, ticket_id),
+        )
+
+
+def test_resolved_tickets_close_after_the_window(store):
+    stale = _make_ticket(store)
+    fresh = _make_ticket(store)
+    for ticket_id in (stale, fresh):
+        store.update_ticket(ticket_id, {"status": "resolved"}, actor="op")
+    _age(store, stale, days=6)
+
+    closed = store.autoclose_resolved(days=5)
+    assert closed == [store.get_ticket(stale).ref]
+    assert store.get_ticket(stale).status == "closed"
+    assert store.get_ticket(stale).closed_at is not None
+    assert store.get_ticket(fresh).status == "resolved"
+
+
+def test_only_resolved_tickets_are_closed(store):
+    """An old untouched *open* ticket is a backlog problem, not a closable one."""
+    old_open = _make_ticket(store)
+    store.update_ticket(old_open, {"status": "open"}, actor="op")
+    _age(store, old_open, days=90)
+    assert store.autoclose_resolved(days=5) == []
+    assert store.get_ticket(old_open).status == "open"
+
+
+def test_activity_resets_the_clock(store):
+    """A client replying 'still broken' must not be closed out from under them.
+
+    The window runs from the last activity, not from when it was resolved.
+    """
+    ticket_id = _make_ticket(store)
+    store.update_ticket(ticket_id, {"status": "resolved"}, actor="op")
+    _age(store, ticket_id, days=6)
+
+    store.add_comment(ticket_id, body="still broken", author_type="client", author_name="Marta")
+
+    assert store.autoclose_resolved(days=5) == []
+    assert store.get_ticket(ticket_id).status == "resolved"
+
+
+def test_autoclose_is_disabled_at_zero(store):
+    ticket_id = _make_ticket(store)
+    store.update_ticket(ticket_id, {"status": "resolved"}, actor="op")
+    _age(store, ticket_id, days=400)
+    assert store.autoclose_resolved(days=0) == []
+    assert store.get_ticket(ticket_id).status == "resolved"
+
+
+def test_autoclose_is_recorded_in_the_event_log(store):
+    ticket_id = _make_ticket(store)
+    store.update_ticket(ticket_id, {"status": "resolved"}, actor="op")
+    _age(store, ticket_id, days=10)
+    store.autoclose_resolved(days=5)
+    kinds = [
+        r["kind"]
+        for r in store.conn.execute("SELECT kind FROM events WHERE ticket_id=?", (ticket_id,))
+    ]
+    assert "ticket.autoclosed" in kinds
+
+
+# ------------------------------------------------------------ asset caching
+
+
+def test_static_urls_are_versioned(signed_in):
+    """A browser holding yesterday's CSS after a deploy looks exactly like a
+    broken layout."""
+    import re
+
+    html = signed_in.get("/").text
+    assert re.search(r'app\.css\?v=[\w.\-]+', html)
+    assert re.search(r'app\.js\?v=[\w.\-]+', html)

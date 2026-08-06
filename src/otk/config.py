@@ -118,6 +118,9 @@ class Settings:
     mcp_port: int = 8789
     web_base_url: str = ""
     """Public base URL of the operator UI, used to make alerts tappable."""
+    autoclose_days: int = 5
+    """Days a ticket may sit resolved and untouched before `otk autoclose`
+    closes it. 0 disables. Any activity resets the clock."""
     display_tz: str = ""
     """IANA zone the UI renders timestamps in, e.g. `Europe/Lisbon`.
 
@@ -192,6 +195,7 @@ def get_settings() -> Settings:
         mcp_url=os.environ.get("OTK_MCP_URL", "").strip().rstrip("/"),
         mcp_port=_env_int("OTK_MCP_PORT", 8789),
         web_base_url=os.environ.get("OTK_WEB_BASE_URL", "").strip().rstrip("/"),
+        autoclose_days=_env_int("OTK_AUTOCLOSE_DAYS", 5),
         display_tz=os.environ.get("OTK_TZ", "").strip(),
     )
 

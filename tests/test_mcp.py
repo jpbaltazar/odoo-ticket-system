@@ -191,15 +191,15 @@ async def test_priority_change_records_its_reason(server, seeded):
         server,
         "suggest_priority",
         ref=ticket.ref,
-        priority="high",
-        because="Blocks invoicing for the month.",
+        priority="low",
+        because="A how-to question, not a fault.",
     )
     updated = store.get_ticket(ticket.id, include_internal=True)
-    assert updated.priority == "high"
+    assert updated.priority == "low"
     note = updated.comments[-1]
     assert note.visibility == "internal"
-    assert "normal → high" in note.body
-    assert "Blocks invoicing" in note.body
+    assert "normal → low" in note.body
+    assert "how-to question" in note.body
 
 
 @pytest.mark.anyio
@@ -379,3 +379,60 @@ def test_only_the_configured_host_is_allowed(settings):
     security = _transport_security(replace(settings, mcp_url="https://mine.example.com/mcp"))
     assert not any("evil" in h for h in security.allowed_hosts)
     assert all(h.startswith("mine.example.com") for h in security.allowed_hosts)
+
+
+# --------------------------------------------------- priority is not its call
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("escalation", ["high", "urgent"])
+async def test_it_cannot_escalate_into_an_alerting_level(server, seeded, escalation):
+    """Priority decides what pages the operator; a hallucination must not."""
+    from mcp.server.mcpserver.exceptions import ToolError
+
+    store, ticket = seeded
+    with pytest.raises(ToolError, match="alerting level"):
+        await _call(
+            server, "suggest_priority", ref=ticket.ref, priority=escalation, because="feels bad"
+        )
+    assert store.get_ticket(ticket.id).priority == "normal"
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("current", ["high", "urgent"])
+async def test_it_cannot_touch_an_already_escalated_ticket(server, seeded, current):
+    """A machine de-escalating what a human flagged is the same problem inverted."""
+    from mcp.server.mcpserver.exceptions import ToolError
+
+    store, ticket = seeded
+    store.update_ticket(ticket.id, {"priority": current}, actor="operator")
+    with pytest.raises(ToolError, match="raised it deliberately"):
+        await _call(
+            server, "suggest_priority", ref=ticket.ref, priority="low", because="looks minor"
+        )
+    assert store.get_ticket(ticket.id).priority == current
+
+
+@pytest.mark.anyio
+async def test_it_can_still_adjust_below_the_alerting_levels(server, seeded):
+    store, ticket = seeded
+    result = await _call(
+        server, "suggest_priority", ref=ticket.ref, priority="low", because="a how-to question"
+    )
+    assert result["priority_now"] == "low"
+    assert store.get_ticket(ticket.id).priority == "low"
+
+
+@pytest.mark.anyio
+async def test_it_can_always_argue_for_escalation_in_a_note(server, seeded):
+    """The escape hatch: it can say so, the operator decides."""
+    store, ticket = seeded
+    await _call(
+        server,
+        "add_internal_note",
+        ref=ticket.ref,
+        body="Looks urgent — POS is down for the whole shop.",
+    )
+    note = store.get_ticket(ticket.id, include_internal=True).comments[-1]
+    assert "urgent" in note.body
+    assert store.get_ticket(ticket.id).priority == "normal", "saying it does not do it"

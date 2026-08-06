@@ -74,6 +74,16 @@ that shows exactly what would go and how much it frees.
 Set `OTK_RETENTION_DAYS` and run `otk purge --auto --yes` from cron for
 unattended retention. It is 0 (off) by default.
 
+```bash
+otk autoclose --dry-run     # what has sat resolved and untouched
+otk autoclose               # close it
+```
+
+Closes tickets resolved and **untouched** for `OTK_AUTOCLOSE_DAYS` (5). The
+clock runs from the last activity, not from when it was resolved, so a client
+replying "still broken" keeps it open rather than having it closed out from
+under them days later.
+
 ## Alerts
 
 Push to your phone when a ticket arrives that should not wait. One HTTP POST to
@@ -143,7 +153,10 @@ your name is a different kind of problem. A test asserts the tool list, so a
 client-facing tool cannot be added by accident.
 
 `suggest_priority` requires a reason and records it, because a priority that
-changed with no explanation is worse than one that never changed.
+changed with no explanation is worse than one that never changed. It can only
+move a ticket **below** the alerting levels — it cannot set `high` or `urgent`,
+and cannot touch a ticket already there. Priority decides what pages you, so
+escalating stays yours; the assistant argues for it in a note instead.
 
 ## Configuration
 
@@ -160,6 +173,7 @@ All optional; defaults in [`src/otk/config.py`](src/otk/config.py).
 | `OTK_MAX_BODY_MB` | `36` | whole request body |
 | `OTK_RATE_LIMIT` | `120` | requests/min per credential |
 | `OTK_RETENTION_DAYS` | `0` | age for `purge --auto`; 0 = off |
+| `OTK_AUTOCLOSE_DAYS` | `5` | days resolved-and-untouched before closing; 0 = off |
 | `OTK_TZ` | server's zone | IANA zone the web UI renders times in |
 | `OTK_NOTIFY_URL` | — | ntfy topic for urgent-ticket alerts; empty disables |
 | `OTK_NOTIFY_TOKEN` | — | bearer token for a protected ntfy topic |

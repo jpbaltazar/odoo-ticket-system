@@ -700,69 +700,6 @@ body.centred {
 .copy-btn:hover { color: var(--fg); border-color: var(--muted); }
 .copy-btn.is-copied { color: #7ee2a8; border-color: #7ee2a8; }
 
-/* ---------------------------------------------------------------- board */
-
-.board {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 14px;
-  align-items: start;
-}
-@media (max-width: 860px) { .board { grid-template-columns: 1fr; } }
-
-.board-col {
-  background: var(--bg-sunken, rgba(0, 0, 0, .18));
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 10px;
-  min-height: 120px;
-}
-.board-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin: 0 0 10px;
-  font-size: 12px;
-  letter-spacing: .08em;
-  text-transform: uppercase;
-  color: var(--muted);
-}
-.board-count {
-  padding: 0 7px;
-  border-radius: 10px;
-  background: var(--bg);
-  border: 1px solid var(--border);
-  font-size: 11px;
-}
-.board-cards { list-style: none; margin: 0; padding: 0; min-height: 60px; display: grid; gap: 8px; }
-.board-cards.is-over { outline: 2px dashed var(--accent, #6ea8fe); outline-offset: 4px; border-radius: 8px; }
-
-.card {
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-left-width: 3px;
-  border-radius: 8px;
-  padding: 8px 10px;
-  cursor: grab;
-}
-.card:active { cursor: grabbing; }
-.card.is-dragging { opacity: .45; }
-.card.is-unread { border-color: var(--accent, #6ea8fe); }
-.card-link { display: block; text-decoration: none; color: inherit; }
-.card-thumb {
-  width: 100%; height: auto; max-height: 110px; object-fit: cover;
-  border-radius: 5px; margin-bottom: 6px; display: block;
-}
-.card-title { font-weight: 600; line-height: 1.3; display: block; }
-.card-meta { margin: 4px 0 0; font-size: 12px; display: flex; flex-wrap: wrap; gap: 6px; }
-.card-empty { color: var(--muted); font-size: 12px; padding: 10px 2px; text-align: center; }
-
-/* Priority is the left edge, so a column scans by urgency without reading. */
-.card.prio-urgent { border-left-color: #e5484d; }
-.card.prio-high   { border-left-color: #f5a524; }
-.card.prio-normal { border-left-color: #6ea8fe; }
-.card.prio-low    { border-left-color: var(--border); }
-
 /* ------------------------------------------------- client priority dots */
 
 .nav-link { display: flex; align-items: center; gap: 8px; }

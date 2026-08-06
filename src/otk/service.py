@@ -116,6 +116,9 @@ class TicketFilters:
     updated_since: datetime | None = None
     reporter_email: str | None = None
     unread_only: bool = False
+    sort: str = "recent"
+    """`recent` (newest first) or `priority` (most urgent first, newest within
+    a level). Priority order does not paginate — see list_tickets."""
     include_closed: bool = True
     include_internal: bool = False
     """Whether `comment_count` counts internal notes. False for anything
@@ -1033,6 +1036,19 @@ class Store:
                 sql += " AND t.updated_at > ?"
                 params.append(iso(filters.updated_since))
             order = " ORDER BY t.updated_at ASC, t.id ASC"
+        elif filters.sort == "priority":
+            # Most urgent first, newest within a level. No cursor: the ranking
+            # key is not stored, so a keyset cursor over it would be a lie the
+            # moment someone changes a priority. The operator UI reads a
+            # bounded page, which is what this ordering is for.
+            if cursor_value is not None:
+                raise ServiceError(
+                    "invalid_cursor", "priority ordering does not paginate"
+                )
+            order = (
+                " ORDER BY CASE t.priority WHEN 'urgent' THEN 4 WHEN 'high' THEN 3"
+                " WHEN 'normal' THEN 2 ELSE 1 END DESC, t.created_at DESC, t.id DESC"
+            )
         else:
             if cursor_value is not None:
                 sql += " AND (t.created_at, t.id) < (?, ?)"
@@ -1759,6 +1775,36 @@ class Store:
         self._log_event(None, None, "operator", "mcp_key.revoked", {"key_id": key_id})
 
     # --------------------------------------------------------------- retention
+
+    def autoclose_resolved(self, days: int) -> list[str]:
+        """Close tickets that have sat resolved and untouched for `days`.
+
+        Measured from `updated_at`, not `resolved_at`, so *any* activity resets
+        the clock. A client replying "still broken" to a resolved ticket does
+        not change its status, and closing it out from under them five days
+        later would be the wrong outcome.
+        """
+        if days <= 0:
+            return []
+        cutoff = iso(now() - timedelta(days=days))
+        rows = list(
+            self.conn.execute(
+                "SELECT id, ref FROM tickets WHERE status='resolved' AND updated_at < ?",
+                (cutoff,),
+            )
+        )
+        stamp = iso(now())
+        for row in rows:
+            with self._write_lock:
+                self.conn.execute(
+                    "UPDATE tickets SET status='closed', closed_at=?, updated_at=?"
+                    " WHERE id=?",
+                    (stamp, stamp, row["id"]),
+                )
+            self._log_event(
+                row["id"], None, "system", "ticket.autoclosed", {"after_days": days}
+            )
+        return [row["ref"] for row in rows]
 
     def purge_candidates(
         self,

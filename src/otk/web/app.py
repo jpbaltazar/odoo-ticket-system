@@ -60,6 +60,15 @@ def create_web_app(settings: Settings | None = None, store: Store | None = None)
     # first request to whichever page happens to use it.
     templates = Jinja2Templates(directory=str(HERE / "templates"))
     register_filters(templates.env, settings.display_tz)
+    # Stamp the asset URLs with the newest mtime under static/. A browser
+    # holding yesterday's CSS after a deploy looks exactly like a broken
+    # layout, and "hard refresh" is not a fix anyone should need to know.
+    static_dir = HERE / "static"
+    try:
+        stamp = int(max(f.stat().st_mtime for f in static_dir.iterdir() if f.is_file()))
+    except (OSError, ValueError):
+        stamp = 0
+    templates.env.globals["asset_v"] = f"{__version__}-{stamp}"
     app.state.templates = templates
     app.state.store = store or Store(settings)
     app.mount("/static", StaticFiles(directory=str(HERE / "static")), name="static")
