@@ -786,12 +786,18 @@ body.centred {
   align-items: flex-start;
 }
 .board-col {
-  /* min-width: 0 or a long unbroken title stretches its column past its share. */
-  flex: 1 1 0;
+  /* Capped, not proportional. With `flex: 1 1 0` a single populated column
+     absorbs every pixel the empty ones gave up, so one high-priority ticket
+     turned into a card as wide as the window. A column is a column at any
+     window size; leftover width stays leftover.
+     min-width: 0 or a long unbroken title stretches its column past its share. */
+  flex: 1 1 240px;
+  max-width: 340px;
   min-width: 0;
 }
 .board-col.is-empty {
   flex: 0 0 auto;
+  max-width: none;
   opacity: .55;
 }
 .board-col.is-empty .board-head { margin: 0; }

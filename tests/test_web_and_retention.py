@@ -1116,6 +1116,18 @@ def test_clicking_a_screenshot_zooms_it_in_place(signed_in, store):
     assert 'Escape' in js
 
 
+def test_a_board_column_does_not_widen_to_fill_the_page(signed_in, store):
+    """One populated column among three empty ones absorbed all the width they
+    gave up, so a single ticket rendered as a card the width of the window."""
+    _make_ticket(store)
+    css = signed_in.get("/static/app.css").text
+    rule = css[css.index(".board-col {"):]
+    rule = rule[: rule.index("}")]
+
+    assert "max-width:" in rule, "a column must stay a column on a wide screen"
+    assert "flex: 1 1 0;" not in rule
+
+
 def test_board_thumbnails_are_a_fixed_height_not_an_aspect_ratio(signed_in, store):
     """With aspect-ratio the thumbnail grows with its column, so a wide window
     turns the board into a wall of screenshots."""
