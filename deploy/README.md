@@ -95,6 +95,65 @@ Use `Caddyfile.example` (certificates handled for you) or
 - **`X-Forwarded-Proto` must be set.** Without it the operator UI cannot tell
   the request arrived over TLS and never marks the session cookie `Secure`.
 
+## MCP endpoint on the admin host
+
+Only if you want claude.ai (or another networked client) to reach it. A locally
+launched client should use stdio over SSH instead and needs none of this.
+
+Add to `/etc/odoo-tickets/env`:
+
+```bash
+OTK_MCP_URL=https://tickets.admin.abansec.com
+OTK_MCP_PORT=8789
+```
+
+The URL must match what the connector is pointed at: it is advertised in the
+auth metadata, and pinning it is what stops a token issued for one host being
+replayed against another.
+
+```bash
+cp deploy/otk-mcp.service /etc/systemd/system/
+systemctl daemon-reload && systemctl enable --now otk-mcp
+sudo -u otk /opt/odoo-tickets/.venv/bin/otk mcp-key issue jose --name claude-web
+```
+
+Then route **both** paths on the admin vhost, above the catch-all `location /`:
+
+```nginx
+# The MCP endpoint itself.
+location /mcp {
+    proxy_pass http://127.0.0.1:8789;
+    proxy_set_header Host              $host;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_read_timeout 120s;
+    proxy_buffering off;          # it streams; buffering stalls responses
+}
+
+# Auth discovery. RFC 9728 puts this at the host root, not under /mcp, and a
+# client reads it *before* authenticating. Miss it and the connector fails at
+# registration with nothing useful in the log.
+location /.well-known/oauth-protected-resource {
+    proxy_pass http://127.0.0.1:8789;
+    proxy_set_header Host              $host;
+    proxy_set_header X-Forwarded-Proto $scheme;
+}
+```
+
+> **If you put an IP allowlist on the admin vhost, this will not work.**
+> claude.ai connects from Anthropic's cloud, not from your laptop, so an
+> allowlist built around your own address blocks it. Either drop the allowlist
+> for these two locations specifically, or keep the allowlist and use
+> stdio-over-SSH instead of a networked connector.
+
+Confirm before adding the connector:
+
+```bash
+curl -s -o /dev/null -w '%{http_code}\n' https://tickets.admin.abansec.com/.well-known/oauth-protected-resource   # 200
+curl -s -o /dev/null -w '%{http_code}\n' -X POST https://tickets.admin.abansec.com/mcp                            # 401
+```
+
+A `401` on `/mcp` without a token is the correct answer — it means auth is on.
+
 ## Retention timer
 
 Only if you want unattended purging. Set `OTK_RETENTION_DAYS` first — it is 0

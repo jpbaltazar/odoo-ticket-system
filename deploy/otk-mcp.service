@@ -1,0 +1,42 @@
+[Unit]
+Description=Odoo Tickets MCP endpoint (operator triage)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=exec
+User=otk
+Group=otk
+WorkingDirectory=/opt/odoo-tickets
+EnvironmentFile=/etc/odoo-tickets/env
+ExecStart=/opt/odoo-tickets/.venv/bin/otk mcp --http
+Restart=on-failure
+RestartSec=2
+
+# Same profile as the other two. This one is reached by an assistant acting on
+# the operator's behalf and can read every client's tickets, so it gets no more
+# room than the services that only serve one client at a time.
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/var/lib/odoo-tickets
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectProc=invisible
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target
