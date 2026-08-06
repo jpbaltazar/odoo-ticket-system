@@ -111,6 +111,11 @@ class Settings:
     notify_include_title: bool = True
     """Whether the ticket title travels in the push. It is written by someone
     else's employee and can name a customer or a figure."""
+    mcp_url: str = ""
+    """Public URL the MCP endpoint is served at, e.g. https://mcp.abansec.com.
+    Required for HTTP mode: the MCP auth spec advertises it, and a mismatch
+    makes tokens issued for one host usable against another."""
+    mcp_port: int = 8789
     web_base_url: str = ""
     """Public base URL of the operator UI, used to make alerts tappable."""
     display_tz: str = ""
@@ -184,6 +189,8 @@ def get_settings() -> Settings:
         notify_min_priority=os.environ.get("OTK_NOTIFY_MIN_PRIORITY", "high").strip().lower(),
         notify_include_title=os.environ.get("OTK_NOTIFY_INCLUDE_TITLE", "1").strip()
         not in ("0", "false", "no"),
+        mcp_url=os.environ.get("OTK_MCP_URL", "").strip().rstrip("/"),
+        mcp_port=_env_int("OTK_MCP_PORT", 8789),
         web_base_url=os.environ.get("OTK_WEB_BASE_URL", "").strip().rstrip("/"),
         display_tz=os.environ.get("OTK_TZ", "").strip(),
     )

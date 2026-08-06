@@ -325,16 +325,103 @@ def web(
 
 
 @app.command()
-def mcp() -> None:
-    """Run the MCP server on stdio, for an assistant to triage tickets.
+def mcp(
+    http: Annotated[
+        bool, typer.Option("--http", help="Serve over HTTP instead of stdio (needs a token)")
+    ] = False,
+    host: Annotated[Optional[str], typer.Option(help="Bind address for --http")] = None,
+    port: Annotated[Optional[int], typer.Option(help="Bind port for --http")] = None,
+) -> None:
+    """Run the MCP server, for an assistant to triage tickets.
 
     Read-and-annotate only: it can leave internal notes, retag and reprioritise,
     but there is no tool that replies to a client, closes a ticket or deletes
     anything.
+
+    Default is stdio, for a locally launched client. `--http` serves Streamable
+    HTTP for a client that connects over the network — always authenticated,
+    since anyone who reaches the URL can try.
     """
+    if http:
+        from .mcp_server import run_http
+
+        settings = get_settings()
+        if not settings.mcp_url:
+            console.print(
+                "[red]error[/red] set OTK_MCP_URL to the public URL of this endpoint "
+                "(e.g. https://mcp.abansec.com) before serving over HTTP"
+            )
+            raise typer.Exit(1)
+        if not _store().list_mcp_keys():
+            console.print(
+                "[yellow]No MCP tokens issued yet[/yellow] — nobody can connect:\n"
+                "  otk mcp-key issue <operator>"
+            )
+        console.print(f"[dim]serving {settings.mcp_url} on {host or settings.host}:"
+                      f"{port or settings.mcp_port}[/dim]")
+        run_http(host, port)
+        return
+
     from .mcp_server import run as run_mcp
 
     run_mcp()
+
+
+mcp_key_app = typer.Typer(help="Bearer tokens for the MCP endpoint.", no_args_is_help=True)
+app.add_typer(mcp_key_app, name="mcp-key")
+
+
+@mcp_key_app.command("issue")
+def mcp_key_issue(
+    username: Annotated[str, typer.Argument(help="Operator the token belongs to")],
+    name: Annotated[str, typer.Option(help="Label, e.g. 'laptop' or 'claude-web'")] = "default",
+) -> None:
+    """Issue an MCP bearer token for an operator. Printed once."""
+    store = _store(announce=True)
+    try:
+        key_id, token = store.issue_mcp_key(username, name)
+    except ServiceError as exc:
+        _fail(exc)
+    console.print(f"[green]issued[/green] MCP token for [bold]{username}[/bold]")
+    console.print(f"  key id: [bold]{key_id}[/bold]")
+    console.print(f"  token:  [bold yellow]{token}[/bold yellow]")
+    console.print(
+        "  [dim]Shown once. This reads every ticket from every client and can\n"
+        "  annotate them — treat it like a password, not an API key.[/dim]"
+    )
+
+
+@mcp_key_app.command("list")
+def mcp_key_list() -> None:
+    """List MCP tokens. Secrets are never shown."""
+    store = _store()
+    table = Table(title="MCP tokens")
+    for column in ("key id", "operator", "name", "created", "last used", "state"):
+        table.add_column(column)
+    for row in store.list_mcp_keys():
+        state = "[red]revoked[/red]" if row["revoked_at"] else "[green]active[/green]"
+        table.add_row(
+            row["id"],
+            row["username"],
+            row["name"],
+            (row["created_at"] or "")[:10],
+            (row["last_used_at"] or "never")[:16],
+            state,
+        )
+    console.print(table)
+
+
+@mcp_key_app.command("revoke")
+def mcp_key_revoke(
+    key_id: Annotated[str, typer.Argument(help="Key id from `otk mcp-key list`")],
+) -> None:
+    """Revoke an MCP token immediately."""
+    store = _store(announce=True)
+    try:
+        store.revoke_mcp_key(key_id)
+    except ServiceError as exc:
+        _fail(exc)
+    console.print(f"[red]revoked[/red] {key_id}")
 
 
 @app.command()

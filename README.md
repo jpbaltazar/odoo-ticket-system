@@ -109,14 +109,35 @@ a report, **look at the screenshot**, and leave findings as an internal note.
 Over SSH so the database never leaves the server. Install the extra there with
 `pip install -e ".[mcp]"`.
 
+For a client that connects over the network instead — claude.ai reaches your
+server from Anthropic's cloud, not from your laptop — serve it over HTTP with a
+bearer token:
+
+```bash
+otk mcp-key issue jose --name claude-web   # per operator, printed once
+OTK_MCP_URL=https://mcp.abansec.com otk mcp --http
+```
+
+Tokens are **per operator**, so a note written through one is signed with that
+person's name (`José Mendes · triage`) rather than anonymously, and revoking one
+person leaves everyone else working. They are hashed with the server pepper like
+every other credential, revocable with `otk mcp-key revoke`, and die
+automatically when the operator is removed.
+
+> **HTTP mode puts every client's screenshots behind one token.** It is not
+> scoped to a client and it reads everything. Serve it over TLS only, keep the
+> token out of anything shared, and prefer stdio-over-SSH wherever the client
+> can spawn a process.
+
 | Reads | Annotates |
 | --- | --- |
 | `list_tickets` `get_ticket` `get_screenshot` `find_similar` `list_clients` | `add_internal_note` `suggest_priority` `add_tags` |
 
 **It cannot talk to a client.** There is no tool that writes a public comment,
 closes a ticket or deletes anything, and every note it writes is
-`visibility="internal"` — which no client-facing endpoint returns — signed
-`triage (automated)` so you can tell machine notes from your own. A wrong
+`visibility="internal"` — which no client-facing endpoint returns — and is
+signed so you can tell machine notes from your own (`José Mendes · triage`
+over an authenticated token, `triage (automated)` over stdio). A wrong
 internal note costs a moment's confusion; the same text sent to a client in
 your name is a different kind of problem. A test asserts the tool list, so a
 client-facing tool cannot be added by accident.
@@ -145,6 +166,8 @@ All optional; defaults in [`src/otk/config.py`](src/otk/config.py).
 | `OTK_NOTIFY_MIN_PRIORITY` | `high` | default alert threshold; per-client override |
 | `OTK_NOTIFY_INCLUDE_TITLE` | `1` | `0` pushes only the ref, not the title |
 | `OTK_WEB_BASE_URL` | — | makes alerts link to the ticket |
+| `OTK_MCP_URL` | — | public URL of the MCP endpoint; required for `mcp --http` |
+| `OTK_MCP_PORT` | `8789` | bind port for `mcp --http` |
 | `OTK_CORS_ORIGINS` | `*` | comma-separated, for browser-direct uploads |
 | `OTK_OPERATOR` | `operator` | name on TUI replies |
 

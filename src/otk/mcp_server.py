@@ -24,18 +24,57 @@ import json
 from typing import Any
 
 from mcp.server import MCPServer
+from mcp.server.auth.middleware.auth_context import get_access_token
+from mcp.server.auth.provider import AccessToken
+from mcp.server.auth.settings import AuthSettings
 from mcp.server.mcpserver import Image
 from mcp.types import ToolAnnotations
 
-from .config import get_settings
+from .config import Settings, get_settings
 from .notify import PRIORITY_ORDER
 from .service import ServiceError, Store, TicketFilters
 
-# Notes this server writes are signed with this, so a human scanning a thread
-# can tell machine triage from a colleague without reading the text.
+# Signature on notes this server writes, so a human scanning a thread can tell
+# machine triage from a colleague without reading the text. Over HTTP the
+# operator behind the token is named too — the point of a per-operator token is
+# that "who triaged this" has an answer.
 TRIAGE_AUTHOR = "triage (automated)"
 
+
+def _triage_author(store: Store) -> str:
+    """Who to sign a note as, resolved per call from the presented token."""
+    token = get_access_token()
+    if token is None:
+        return TRIAGE_AUTHOR  # stdio: no token, no identity to attribute to
+    operator = store.operator_for_mcp_key(token.client_id)
+    return f"{operator} · triage" if operator else TRIAGE_AUTHOR
+
 MAX_BODY_CHARS = 4000
+
+
+class StoreTokenVerifier:
+    """Verifies MCP bearer tokens against the database.
+
+    Implements the SDK's TokenVerifier protocol. Tokens are hashed with the
+    server pepper and revocable, so a leaked one is killed with
+    `otk mcp-key revoke` rather than by rotating anything else.
+    """
+
+    def __init__(self, store: Store) -> None:
+        self._store = store
+
+    async def verify_token(self, token: str) -> AccessToken | None:
+        principal = self._store.verify_mcp_key(token)
+        if principal is None:
+            return None
+        # client_id carries the key id so a tool can resolve the operator, and
+        # subject carries the username so it shows up in any audit logging.
+        return AccessToken(
+            token=token,
+            client_id=principal.session_id,
+            subject=principal.username,
+            scopes=["triage"],
+        )
 
 
 def _summarise(ticket: Any) -> dict[str, Any]:
@@ -62,10 +101,36 @@ def _summarise(ticket: Any) -> dict[str, Any]:
     }
 
 
-def build_server(store: Store | None = None) -> MCPServer:
+def build_server(store: Store | None = None, *, authenticated: bool = False) -> MCPServer:
+    """Build the server.
+
+    `authenticated` is for HTTP mode, where the endpoint is reachable by
+    anyone who finds it. Over stdio it is off: the transport is a pipe from a
+    process the operator already started, so a token would protect nothing.
+    """
     store = store or Store(get_settings())
+    settings: Settings = store.settings
+
+    auth_kwargs: dict[str, Any] = {}
+    if authenticated:
+        if not settings.mcp_url:
+            raise ServiceError(
+                "mcp_url_required",
+                "set OTK_MCP_URL to the public URL of the MCP endpoint before"
+                " serving it over HTTP",
+            )
+        auth_kwargs = {
+            "token_verifier": StoreTokenVerifier(store),
+            "auth": AuthSettings(
+                issuer_url=settings.mcp_url,
+                resource_server_url=settings.mcp_url,
+                required_scopes=["triage"],
+            ),
+        }
+
     server = MCPServer(
         name="odoo-tickets",
+        **auth_kwargs,
         instructions=(
             "Triage support tickets from Odoo users. Read tickets, look at the "
             "screenshots, and record what you find as an INTERNAL note for the "
@@ -224,14 +289,20 @@ def build_server(store: Store | None = None) -> MCPServer:
         body = body.strip()
         if not body:
             raise ServiceError("empty_note", "a note needs a body")
+        author = _triage_author(store)
         comment = store.add_comment(
             ref,
             body=body[:MAX_BODY_CHARS],
             author_type="agent",
-            author_name=TRIAGE_AUTHOR,
+            author_name=author,
             visibility="internal",
         )
-        return {"comment_id": comment.id, "visibility": "internal", "ticket": ref}
+        return {
+            "comment_id": comment.id,
+            "visibility": "internal",
+            "ticket": ref,
+            "signed_as": author,
+        }
 
     @server.tool(annotations=annotating)
     def suggest_priority(ref: str, priority: str, because: str) -> dict[str, Any]:
@@ -247,29 +318,55 @@ def build_server(store: Store | None = None) -> MCPServer:
             )
         ticket = store.get_ticket(ref)
         before = ticket.priority
-        store.update_ticket(ticket.id, {"priority": priority}, actor=TRIAGE_AUTHOR)
+        author = _triage_author(store)
+        store.update_ticket(ticket.id, {"priority": priority}, actor=author)
         store.add_comment(
             ticket.id,
             body=f"Priority {before} → {priority}. {because.strip()}"[:MAX_BODY_CHARS],
             author_type="agent",
-            author_name=TRIAGE_AUTHOR,
+            author_name=author,
             visibility="internal",
         )
-        return {"ticket": ticket.ref, "priority_was": before, "priority_now": priority}
+        return {
+            "ticket": ticket.ref,
+            "priority_was": before,
+            "priority_now": priority,
+            "signed_as": author,
+        }
 
     @server.tool(annotations=annotating)
     def add_tags(ref: str, tags: list[str]) -> dict[str, Any]:
         """Add tags to a ticket, keeping the ones already on it."""
         ticket = store.get_ticket(ref)
         merged = sorted({*ticket.tags, *(t.strip() for t in tags if t.strip())})
-        store.update_ticket(ticket.id, {"tags": merged}, actor=TRIAGE_AUTHOR)
+        store.update_ticket(ticket.id, {"tags": merged}, actor=_triage_author(store))
         return {"ticket": ticket.ref, "tags": merged}
 
     return server
 
 
 def run() -> None:
+    """Serve on stdio, for a locally launched client."""
     build_server().run(transport="stdio")
+
+
+def run_http(host: str | None = None, port: int | None = None) -> None:
+    """Serve over Streamable HTTP, for a client that connects over the network.
+
+    Always authenticated: unlike stdio, anyone who reaches the URL can try.
+    """
+    import uvicorn
+
+    store = Store(get_settings())
+    settings = store.settings
+    server = build_server(store, authenticated=True)
+    uvicorn.run(
+        server.streamable_http_app(),
+        host=host or settings.host,
+        port=port or settings.mcp_port,
+        proxy_headers=True,
+        forwarded_allow_ips="*",
+    )
 
 
 if __name__ == "__main__":

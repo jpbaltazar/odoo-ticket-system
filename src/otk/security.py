@@ -26,7 +26,12 @@ SESSION_PREFIX = "otks"
 """Operator web session. Never accepted on the `/api/v1` routes, and API keys
 are never accepted as a session — the two audiences stay disjoint."""
 
-_ALL_PREFIXES = (API_KEY_PREFIX, UPLOAD_TOKEN_PREFIX, SESSION_PREFIX)
+MCP_KEY_PREFIX = "otm"
+"""Bearer token for the MCP endpoint. Unlike an API key it is not tied to a
+client — it reads every ticket — so it is a distinct prefix and a distinct
+table, and never accepted anywhere else."""
+
+_ALL_PREFIXES = (API_KEY_PREFIX, UPLOAD_TOKEN_PREFIX, SESSION_PREFIX, MCP_KEY_PREFIX)
 
 _KEY_ID_BYTES = 6  # 48 bits, ample for an identifier
 _SECRET_BYTES = 32  # 256 bits

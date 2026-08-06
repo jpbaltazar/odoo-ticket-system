@@ -10,7 +10,7 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS clients (
@@ -178,6 +178,20 @@ CREATE TABLE IF NOT EXISTS sessions (
     revoked_at   TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_sessions_operator ON sessions(operator_id);
+
+-- Credentials for the MCP endpoint. Separate from api_keys because they are
+-- not scoped to a client: the assistant triages across everyone, so one of
+-- these reads every ticket there is. Kept revocable and hashed like the rest.
+CREATE TABLE IF NOT EXISTS mcp_keys (
+    id           TEXT PRIMARY KEY,
+    operator_id  TEXT NOT NULL REFERENCES operators(id) ON DELETE CASCADE,
+    name         TEXT NOT NULL,
+    secret_hash  TEXT NOT NULL,
+    created_at   TEXT NOT NULL,
+    last_used_at TEXT,
+    revoked_at   TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_mcp_keys_operator ON mcp_keys(operator_id);
 
 CREATE TABLE IF NOT EXISTS rate_limits (
     bucket     TEXT PRIMARY KEY,

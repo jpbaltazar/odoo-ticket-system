@@ -1650,6 +1650,90 @@ class Store:
             cur = self.conn.execute("DELETE FROM sessions WHERE expires_at < ?", (iso(now()),))
         return cur.rowcount
 
+    # -------------------------------------------------------------- mcp keys
+
+    def issue_mcp_key(self, username: str, name: str = "default") -> tuple[str, str]:
+        """Create a bearer token for one operator. Returns (id, plaintext).
+
+        Per operator rather than per deployment, so a note written through the
+        token can be attributed to a person, and so revoking one person does
+        not disturb anyone else. Not scoped to a client — it reads every ticket
+        on the server — so treat it like a password, not like an API key.
+        """
+        row = self.conn.execute(
+            "SELECT id FROM operators WHERE username=?", (username.strip().lower(),)
+        ).fetchone()
+        if row is None:
+            raise NotFound(f"operator {username!r} not found")
+        cred = security.generate_credential(
+            security.MCP_KEY_PREFIX, self.settings.env, self.settings.secret
+        )
+        with self._write_lock:
+            self.conn.execute(
+                "INSERT INTO mcp_keys(id, operator_id, name, secret_hash, created_at)"
+                " VALUES(?,?,?,?,?)",
+                (cred.key_id, row["id"], name, cred.secret_hash, iso(now())),
+            )
+        self._log_event(None, None, username, "mcp_key.issued", {"key_id": cred.key_id})
+        return cred.key_id, cred.token
+
+    def verify_mcp_key(self, token: str) -> auth.OperatorPrincipal | None:
+        """Return the operator behind a valid token, else None."""
+        parsed = security.parse_token(token)
+        if parsed is None or parsed.prefix != security.MCP_KEY_PREFIX:
+            return None
+        row = self.conn.execute(
+            "SELECT k.*, o.username, o.display_name FROM mcp_keys k"
+            " JOIN operators o ON o.id = k.operator_id WHERE k.id=?",
+            (parsed.key_id,),
+        ).fetchone()
+        # Verify against a dummy hash for an unknown id so the two failures
+        # cost the same and the response cannot be used to probe for ids.
+        expected = row["secret_hash"] if row else "0" * 64
+        valid = security.verify_secret(parsed.secret, expected, self.settings.secret)
+        if row is None or not valid or row["revoked_at"]:
+            return None
+        with self._write_lock:
+            self.conn.execute(
+                "UPDATE mcp_keys SET last_used_at=? WHERE id=?", (iso(now()), row["id"])
+            )
+        return auth.OperatorPrincipal(
+            operator_id=row["operator_id"],
+            username=row["username"],
+            display_name=row["display_name"] or row["username"],
+            session_id=row["id"],
+            csrf_token="",
+        )
+
+    def operator_for_mcp_key(self, key_id: str) -> str | None:
+        """Display name of the operator a key belongs to, for signing notes."""
+        row = self.conn.execute(
+            "SELECT o.display_name, o.username FROM mcp_keys k"
+            " JOIN operators o ON o.id=k.operator_id WHERE k.id=?",
+            (key_id,),
+        ).fetchone()
+        return (row["display_name"] or row["username"]) if row else None
+
+    def list_mcp_keys(self, username: str | None = None) -> list[dict[str, Any]]:
+        sql = (
+            "SELECT k.*, o.username FROM mcp_keys k JOIN operators o ON o.id=k.operator_id"
+        )
+        params: list[Any] = []
+        if username:
+            sql += " WHERE o.username=?"
+            params.append(username.strip().lower())
+        return [dict(r) for r in self.conn.execute(sql + " ORDER BY k.created_at DESC", params)]
+
+    def revoke_mcp_key(self, key_id: str) -> None:
+        with self._write_lock:
+            cur = self.conn.execute(
+                "UPDATE mcp_keys SET revoked_at=? WHERE id=? AND revoked_at IS NULL",
+                (iso(now()), key_id),
+            )
+        if cur.rowcount == 0:
+            raise NotFound(f"mcp key {key_id} not found or already revoked")
+        self._log_event(None, None, "operator", "mcp_key.revoked", {"key_id": key_id})
+
     # --------------------------------------------------------------- retention
 
     def purge_candidates(
