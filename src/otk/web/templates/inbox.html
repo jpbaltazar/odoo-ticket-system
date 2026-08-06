@@ -55,8 +55,8 @@
 
             {# The image and the text are separate blocks. Nesting them in one
                anchor made the text wrap around the thumbnail. #}
-            <li class="card{% if t.unread %} is-unread{% endif %}">
-              <a class="card-thumb" href="/tickets/{{ t.id }}" aria-hidden="true" tabindex="-1">
+            <li class="tcard{% if t.unread %} is-unread{% endif %}">
+              <a class="tcard-thumb" href="/tickets/{{ t.id }}" aria-hidden="true" tabindex="-1">
                 {% if thumb %}
                   <img src="/attachments/{{ thumb.id }}/thumb" alt="" loading="lazy">
                 {% elif t.purged_at %}
@@ -66,12 +66,12 @@
                 {% endif %}
               </a>
 
-              <div class="card-body">
-                <a class="card-title" href="/tickets/{{ t.id }}">
+              <div class="tcard-body">
+                <a class="tcard-title" href="/tickets/{{ t.id }}">
                   {% if t.unread %}<span class="unread-dot" title="Unread">●</span>{% endif %}
                   {{ t.title }}
                 </a>
-                <p class="card-meta">
+                <p class="tcard-meta">
                   <span class="ref">{{ t.ref }}</span>
                   {# On the board a resolved ticket is only here because the
                      client came back, so say that rather than "resolved". #}
@@ -81,7 +81,7 @@
                     <span class="pill status-{{ t.status }}">{{ t.status.replace('_', ' ') }}</span>
                   {% endif %}
                 </p>
-                <p class="card-meta muted">
+                <p class="tcard-meta muted">
                   <span>{{ t.client_name }}</span>
                   <span class="sep">·</span>
                   <span title="{{ t.created_at|localtime }}">{{ t.created_at|ago }}</span>

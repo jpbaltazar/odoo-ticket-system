@@ -850,12 +850,12 @@ def test_card_keeps_the_image_and_the_text_in_separate_blocks(signed_in, store):
     _make_ticket(store)
     html = signed_in.get("/").text
     # `card[^"]*` also matches `card-empty`; require the exact class.
-    card = re.search(r'<li class="card(?: [^"]*)?">(.*?)</li>', html, re.S).group(1)
+    card = re.search(r'<li class="tcard(?: [^"]*)?">(.*?)</li>', html, re.S).group(1)
 
-    thumb = re.search(r'<a class="card-thumb".*?</a>', card, re.S).group(0)
-    body = re.search(r'<div class="card-body">.*?</div>', card, re.S).group(0)
-    assert "<img" in thumb and "card-title" not in thumb
-    assert "card-title" in body and "<img" not in body
+    thumb = re.search(r'<a class="tcard-thumb".*?</a>', card, re.S).group(0)
+    body = re.search(r'<div class="tcard-body">.*?</div>', card, re.S).group(0)
+    assert "<img" in thumb and "tcard-title" not in thumb
+    assert "tcard-title" in body and "<img" not in body
 
 
 def test_the_board_is_not_draggable(signed_in, store):
@@ -1065,3 +1065,20 @@ def test_the_ticket_page_is_the_only_full_height_layout(signed_in, store):
     assert 'class="page-ticket"' in signed_in.get(f"/tickets/{ticket_id}").text
     assert 'class="page-ticket"' not in signed_in.get("/").text
     assert "page-ticket" not in signed_in.get("/storage").text
+
+
+def test_board_cards_do_not_inherit_the_login_card_styles(signed_in, store):
+    """`.card` is the standalone login/error card — max-width 380px and 26px of
+    padding. Reusing the name for board cards applied both silently."""
+    _make_ticket(store)
+    html = signed_in.get("/").text
+    assert 'class="tcard' in html
+    # A board card must not carry the bare class the login card owns.
+    assert 'class="card"' not in html and 'class="card ' not in html
+
+
+def test_the_content_area_is_not_width_capped(signed_in):
+    css = signed_in.get("/static/app.css").text
+    main = css[css.index(".main {"):]
+    main = main[: main.index("}")]
+    assert "max-width" not in main, "the board and storage table want the full width"
